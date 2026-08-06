@@ -1,13 +1,13 @@
 <script lang="ts">
 	import './layout.css';
-	import favicon from '$lib/assets/favicon.svg';
+	import favicon from '$lib/assets/chyz.png';
 	import CursorLayer from '$lib/cursors/CursorLayer.svelte';
 	import { resolve } from '$app/paths';
 
 	let { children } = $props();
 </script>
 
-<svelte:head><link rel="icon" href={favicon} /></svelte:head>
+<svelte:head><link rel="icon" type="image/png" href={favicon} /></svelte:head>
 <CursorLayer />
 <div class="mx-auto flex min-h-screen w-[48rem] flex-col px-6" data-cursor-bounds>
 	<nav class="flex gap-6 border-b border-line py-4 text-sm">
