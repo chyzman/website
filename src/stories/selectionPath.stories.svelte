@@ -1,14 +1,12 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { expect, within } from 'storybook/test';
-	import { serializeSelection, resolveSelectionRects } from './selectionPath';
+	import { serializeSelection, resolveSelectionRects } from '$lib/multiplayer/selectionPath';
 
 	const { Story } = defineMeta({
 		title: 'Multiplayer/selectionPath'
 	});
 
-	// programmatically selects from (startEl, startOffset) to (endEl, endOffset)
-	// — real DOM Selection/Range APIs, fully scriptable (unlike real zoom gestures)
 	function selectText(startEl: Node, startOffset: number, endEl: Node, endOffset: number) {
 		const range = document.createRange();
 		range.setStart(startEl, startOffset);
@@ -26,13 +24,6 @@
 	}
 </script>
 
-<!-- regression coverage for the real bugs found debugging this: rects that
-     shouldn't bridge across real gaps (separate nav links), rects that
-     should merge (a link embedded directly in a sentence), and avoiding
-     full-container-width boxes for fully-selected block elements. needs a
-     real browser — this is exactly the DOM layout/hit-testing logic that
-     had actual bugs, jsdom's layout engine isn't faithful enough -->
-
 <Story
 	name="Separate links on the same line stay separate, not bridged"
 	asChild
@@ -47,8 +38,6 @@
 		if (!serialized) throw new Error('expected a serialized selection');
 		const rects = resolveSelectionRects(root, serialized);
 
-		// two separate links with a real gap between them should stay as two
-		// distinct boxes, not get bridged into one spanning both
 		await expect(rects.length).toBe(2);
 	}}
 >
@@ -66,8 +55,6 @@
 		const root = canvas.getByTestId('root');
 		const p = canvas.getByTestId('paragraph');
 
-		// select the whole sentence, including the embedded link with no gap
-		// around it — should read as one continuous line, not split boxes
 		const first = firstTextNode(p);
 		let last: Text = first;
 		const walker = document.createTreeWalker(p, NodeFilter.SHOW_TEXT);
@@ -96,9 +83,6 @@
 		const h1 = canvas.getByTestId('heading');
 		const p = canvas.getByTestId('paragraph');
 
-		// select from the heading through the paragraph — the heading is fully
-		// contained, which is exactly the case that used to produce a
-		// full-container-width box instead of a tight one
 		selectText(firstTextNode(h1), 0, firstTextNode(p), firstTextNode(p).length);
 		const serialized = serializeSelection(root);
 		if (!serialized) throw new Error('expected a serialized selection');

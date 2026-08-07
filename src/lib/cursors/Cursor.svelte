@@ -1,25 +1,19 @@
 <script module lang="ts">
 	import type { Property } from 'csstype';
+	import { cursor as tuning } from './tuning';
 
-	const iconFiles = import.meta.glob('../assets/cursors/*.svg', {
+	const iconFiles = import.meta.glob('./assets/*.svg', {
 		query: '?raw',
 		import: 'default',
 		eager: true
 	}) as Record<string, string>;
 
-	// real hotspots from the BreezeX theme's own x.build.toml (x_hotspot/
-	// y_hotspot per cursor) - not estimated, these are the actual values
-	// the theme itself ships. text/xterm has no entry there, meaning it
-	// uses the theme's fallback of dead-center, matching the automatic
-	// viewBox-center fallback below - no override needed for it.
 	const centers: Partial<Record<Property.Cursor, { x: number; y: number }>> = {
 		default: { x: 69, y: 30 }, // left_ptr
 		pointer: { x: 117, y: 36 }, // hand2
 		grab: { x: 144, y: 90 }, // hand1
 		grabbing: { x: 141, y: 79 } // move
 	};
-
-	const SCALE = 20 / 164;
 
 	type CursorEntry = {
 		icon: string;
@@ -41,7 +35,7 @@
 		const halfH = Math.max(center.y - vy, vy + vh - center.y);
 		const paddedW = halfW * 2;
 		const paddedH = halfH * 2;
-		const size = { width: paddedW * SCALE, height: paddedH * SCALE };
+		const size = { width: paddedW * tuning.iconScale, height: paddedH * tuning.iconScale };
 
 		const resized = svg
 			.replace(/viewBox="[^"]*"/, `viewBox="${center.x - halfW} ${center.y - halfH} ${paddedW} ${paddedH}"`)
@@ -57,6 +51,22 @@
 	export function cursorSize(type: Property.Cursor): { width: number; height: number } {
 		return (cursors[type] ?? cursors.default!).size;
 	}
+
+	export function cursorCssValue(
+		type: Property.Cursor,
+		primary: string,
+		secondary: string,
+		fallback: string
+	): string {
+		const entry = cursors[type] ?? cursors.default!;
+		const svg = entry.icon
+			.replace(/<g filter="[^"]*">/, '<g>')
+			.replace(/<defs>[\s\S]*?<\/defs>/, '')
+			.replaceAll('var(--cursor-primary, currentColor)', primary)
+			.replaceAll('currentColor', secondary);
+		const encoded = encodeURIComponent(svg);
+		return `url("data:image/svg+xml,${encoded}") ${entry.size.width / 2} ${entry.size.height / 2}, ${fallback}`;
+	}
 </script>
 
 <script lang="ts">
@@ -66,6 +76,7 @@
 		secondaryColor,
 		x,
 		y,
+		scale = 1,
 		opacity = 1
 	}: {
 		type: Property.Cursor;
@@ -73,11 +84,14 @@
 		secondaryColor?: string;
 		x: number;
 		y: number;
+		scale?: number;
 		opacity?: number;
 	} = $props();
 
 	let entry = $derived(cursors[type] ?? cursors.default!);
-	let translate = $derived(`translate(${x}px, ${y}px) translate(-50%, -50%)`);
+	let translate = $derived(
+		`translate(${x}px, ${y}px) translate(-50%, -50%) scale(${scale})`
+	);
 	let resolvedSecondary = $derived(secondaryColor ?? color);
 </script>
 

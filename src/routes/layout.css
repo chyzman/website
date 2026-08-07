@@ -15,11 +15,12 @@
 
 body {
 	@apply bg-canvas font-mono text-ink antialiased;
+	cursor: var(--cursor-icon-active, var(--cursor-icon-default, default));
 }
 
 a {
 	@apply text-accent underline underline-offset-2;
-	--cursor-hint: pointer;
+	cursor: var(--cursor-icon-pointer, pointer);
 }
 
 .hover-active {
@@ -32,12 +33,6 @@ a {
    --user-color isn't set yet (e.g. before the effect runs) */
 ::selection {
 	background-color: color-mix(in oklab, var(--user-color, var(--color-accent)) 25%, transparent);
-}
-
-/* read via getComputedStyle by the multiplayer cursor icon, instead of
-   guessing via a separate tag-name check */
-:is(h1, h2, h3, h4, h5, h6, p, li, blockquote) {
-	--cursor-hint: text;
 }
 
 /* ties @tailwindcss/typography's dark palette to our own theme tokens,

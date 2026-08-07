@@ -2,7 +2,6 @@ import PartySocket from 'partysocket';
 
 export type PresenceState = Record<string, unknown>;
 
-/** Host of the party worker, shared by the WebSocket connection and plain HTTP calls to it. */
 export const partyHost = import.meta.env.VITE_PARTY_HOST ?? 'localhost:8788';
 
 type ServerMessage =
@@ -10,15 +9,9 @@ type ServerMessage =
 	| ({ type: 'presence'; id: string } & PresenceState)
 	| { type: 'leave'; id: string };
 
-/** Reactive map of every other connection's presence state, keyed by connection id. */
 export const presence = $state<Record<string, PresenceState>>({});
 
 let socket: PartySocket | undefined;
-// everything this connection has ever patched, accumulated — resent in full
-// whenever the socket (re)opens, so a value set before the connection existed
-// (e.g. a persisted() value restored before connect() runs) and switching
-// rooms (a full reconnect to a different, blank-state room) both correctly
-// re-establish your presence, instead of only the *next* change after that
 let myState: PresenceState = {};
 
 function roomForPath(pathname: string) {
@@ -63,7 +56,6 @@ export function connect(pathname: string) {
 	});
 }
 
-/** Switch to the room for a different page, if it's not already the active one. */
 export function switchRoom(pathname: string) {
 	if (!socket) return;
 	const room = roomForPath(pathname);
@@ -73,11 +65,8 @@ export function switchRoom(pathname: string) {
 	socket.reconnect();
 }
 
-/** Merge fields into your own presence state, syncing them to everyone else in the room. */
 export function patch(fields: PresenceState) {
 	myState = { ...myState, ...fields };
-	// if the socket isn't open yet, no need to queue this individually — the
-	// full myState snapshot gets (re)sent as soon as it opens anyway
 	if (socket && socket.readyState === WebSocket.OPEN) {
 		socket.send(JSON.stringify({ type: 'patch', ...fields }));
 	}

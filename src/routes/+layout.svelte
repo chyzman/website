@@ -1,17 +1,27 @@
 <script lang="ts">
 	import './layout.css';
-	import './hide-native-cursor.css';
 	import favicon from '$lib/assets/chyz.png';
 	import CursorLayer from '$lib/cursors/CursorLayer.svelte';
 	import { resolve } from '$app/paths';
-	import { color } from '$lib/multiplayer/settings.svelte';
+	import { color, secondaryColor } from '$lib/multiplayer/settings.svelte';
+	import { cursorCssValue } from '$lib/cursors/Cursor.svelte';
 
 	let { children } = $props();
 
-	// only things specific to *you* (your cursor, your own ::selection) read
-	// this — page UI like link color stays the shared, fixed site accent
 	$effect(() => {
 		document.documentElement.style.setProperty('--user-color', color.value);
+		document.documentElement.style.setProperty(
+			'--cursor-icon-default',
+			cursorCssValue('default', color.value, secondaryColor.value, 'default')
+		);
+		document.documentElement.style.setProperty(
+			'--cursor-icon-pointer',
+			cursorCssValue('pointer', color.value, secondaryColor.value, 'pointer')
+		);
+		document.documentElement.style.setProperty(
+			'--cursor-icon-text',
+			cursorCssValue('text', color.value, secondaryColor.value, 'text')
+		);
 	});
 </script>
 

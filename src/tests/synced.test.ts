@@ -1,14 +1,12 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
-// room.svelte owns the actual network connection — mocked here so synced()
-// can be tested in isolation, without a real (or fake) party server
-vi.mock('./room.svelte', () => ({
+vi.mock('$lib/multiplayer/room.svelte', () => ({
 	patch: vi.fn(),
 	presence: {}
 }));
 
-import { patch, presence } from './room.svelte';
-import { synced } from './synced.svelte';
+import { patch, presence } from '$lib/multiplayer/room.svelte';
+import { synced } from '$lib/multiplayer/synced.svelte';
 
 describe('synced()', () => {
 	beforeEach(() => {

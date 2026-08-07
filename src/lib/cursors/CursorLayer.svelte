@@ -1,8 +1,7 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
 	import { page } from '$app/state';
-	import { SvelteSet } from 'svelte/reactivity';
-	import { autoUpdate } from '@floating-ui/dom';
+    import {SvelteMap, SvelteSet} from "svelte/reactivity";
 	import * as perfectCursorsPkg from 'perfect-cursors';
 	import type { PerfectCursor as PerfectCursorType } from 'perfect-cursors';
 	const { PerfectCursor } = perfectCursorsPkg;
@@ -24,36 +23,16 @@
 		serializeSelection,
 		type SerializedRange
 	} from '$lib/multiplayer/selectionPath';
+	import { idle, network, debounce, cursor } from './tuning';
 
-	// pos.x/y are pixel offsets from the content container's top-left corner —
-	// the container is a fixed width, so this lines up the same for every viewer,
-	// regardless of their own window size (unlike raw page coordinates would).
 	const pos = synced('pos', null as { x: number; y: number } | null);
 	const hovering = synced('hovering', null as string | null);
 	const cursorType = synced<Property.Cursor>('cursorType', 'default');
 	const selection = synced('selection', null as SerializedRange | null);
 
-	// container-relative (same convention as pos.value, the network-synced
-	// version) — updated every mousemove with no throttling, since this is
-	// what renders *your own* cursor and has to feel instant, unlike pos.value
-	// which is throttled for the network. Deliberately *not* document-relative:
-	// origin (below) is the only place that converts to document space, used
-	// uniformly for rendering everyone including yourself, rather than two
-	// separate document-relative computations that can (and did) quietly drift
-	let localPos = $state({ x: 0, y: 0 });
-	// browsers don't report a mouse position until the first real mousemove —
-	// without this, localPos's (0, 0) default would render visibly in the
-	// corner until then, instead of just not showing anything yet
-	let hasLocalPos = $state(false);
-
 	let origin = $state({ left: 0, top: 0 });
-	// the actual scrollable document size — overlays are sized to exactly this
-	// (position: absolute, not fixed) instead of being viewport-pinned. plain
-	// absolutely-positioned content zooms/pans the same predictable way normal
-	// page content does; `position: fixed` does not (long-standing, inconsistent
-	// cross-browser behavior specifically around pinch-zoom), which is what was
-	// dragging the cursor/highlights along when panning instead of holding still
 	let docSize = $state({ width: 0, height: 0 });
+	let viewportScale = $state(1);
 	function measureDocSize() {
 		docSize = {
 			width: document.documentElement.scrollWidth,
@@ -61,16 +40,11 @@
 		};
 	}
 
-	// remote positions arrive as discrete, throttled network updates — this
-	// smooths the motion between them (spline interpolation via perfect-cursors,
-	// the library tldraw uses for the same problem) instead of every update
-	// being a visible small jump. your own cursor isn't smoothed at all, since
-	// it's raw local mouse input and should feel instant, not eased
-	const cursorAnimators = new Map<string, PerfectCursorType>();
-	let lastFed = new Map<string, string>();
+	const cursorAnimators = new SvelteMap<string, PerfectCursorType>();
+	let lastFed = new SvelteMap<string, string>();
 	let smoothed = $state<Record<string, { x: number; y: number }>>({});
 	$effect(() => {
-		const activeIds = new Set<string>();
+		const activeIds = new SvelteSet<string>();
 		for (const [id, p] of Object.entries(pos.others)) {
 			if (!p) continue;
 			activeIds.add(id);
@@ -96,6 +70,17 @@
 		}
 	});
 
+	const lastActiveAt = synced<number | null>('lastActiveAt', null);
+	let now = $state(Date.now());
+
+	function idleFactor(id: string): number {
+		const last = lastActiveAt.others[id];
+		if (last == null) return 1;
+		const idleMs = now - last;
+		if (idleMs <= idle.graceMs) return 1;
+		return 1 - Math.min(1, (idleMs - idle.graceMs) / idle.fadeMs);
+	}
+
 	type CursorEntry = {
 		id: string;
 		x: number;
@@ -104,10 +89,6 @@
 		color: string;
 		secondaryColor: string;
 	};
-	// one combined list — yourself plus everyone else — rendered through the
-	// exact same template below, instead of two separate implementations.
-	// each person's own chosen colors travel with their entry, instead of
-	// everyone sharing one static accent color
 	let cursorEntries = $derived.by((): CursorEntry[] => {
 		const entries: CursorEntry[] = [];
 		for (const [id, p] of Object.entries(pos.others)) {
@@ -123,26 +104,9 @@
 				});
 			}
 		}
-		// pushed last so your own cursor renders on top of everyone else's.
-		// already container-relative, same as everyone else's entries — no
-		// separate conversion needed here
-		if (hasLocalPos) {
-			entries.push({
-				id: 'self',
-				x: localPos.x,
-				y: localPos.y,
-				type: cursorType.value,
-				color: color.value,
-				secondaryColor: secondaryColor.value
-			});
-		}
 		return entries;
 	});
 
-	// resolved fresh from each remote selection's path, on our own current DOM —
-	// getClientRects() is always viewport-relative, converted via toDocumentSpace
-	// since the highlight layer is an absolutely (not fixed) positioned overlay
-	// anchored at the document's origin
 	let highlightRects = $state<Record<string, DOMRect[]>>({});
 	function recomputeHighlights() {
 		const root = document.querySelector('[data-cursor-bounds]');
@@ -159,8 +123,6 @@
 		highlightRects = next;
 	}
 
-	// same idea as above — a fresh, live measurement, converted to document-
-	// relative terms only for the sake of rendering into our absolute overlay
 	function measureOrigin() {
 		const el = document.querySelector('[data-cursor-bounds]');
 		if (!el) return;
@@ -173,89 +135,73 @@
 		connect(page.url.pathname);
 		measureOrigin();
 		measureDocSize();
-		// each animated segment's duration is however long it actually took to
-		// receive that update, capped at MAX_INTERVAL - the default (300ms)
-		// means any network gap that large makes the cursor visibly lag behind
-		// while it eases through the backlog. lower this to bound how slow a
-		// single catch-up animation can ever feel, at the cost of it being
-		// slightly less smooth right after a real gap
-		PerfectCursor.MAX_INTERVAL = 25;
-		// document size can also change from content growing/shrinking, not just
-		// the window resizing (e.g. someone spawning physics objects later) —
-		// ResizeObserver catches that
-		const resizeObserver = new ResizeObserver(measureDocSize);
-		resizeObserver.observe(document.documentElement);
+		PerfectCursor.MAX_INTERVAL = cursor.perfectCursorMaxIntervalMs;
 
-		// selectionchange fires rapidly while dragging to select, so debounce
-		// rather than sending on every intermediate state
+		const container = document.querySelector('[data-cursor-bounds]');
+		const docResizeObserver = new ResizeObserver(measureDocSize);
+		docResizeObserver.observe(document.documentElement);
+
+		function currentVvState() {
+			const vv = window.visualViewport;
+			return { left: vv?.offsetLeft ?? 0, top: vv?.offsetTop ?? 0, scale: vv?.scale ?? 1 };
+		}
+
+		let hasClient = false;
+		let lastClient = { x: 0, y: 0 };
+		let lastClientVv = { left: 0, top: 0, scale: 1 };
+
+		const idleTicker = setInterval(() => (now = Date.now()), idle.tickIntervalMs);
+
 		let selectionTimer: ReturnType<typeof setTimeout> | undefined;
 		function handleSelectionChange() {
 			clearTimeout(selectionTimer);
 			selectionTimer = setTimeout(() => {
-				const root = document.querySelector('[data-cursor-bounds]');
-				selection.value = root ? serializeSelection(root) : null;
-			}, 100);
+				selection.value = container ? serializeSelection(container) : null;
+			}, debounce.selectionMs);
 		}
 		document.addEventListener('selectionchange', handleSelectionChange);
 
 		let lastSend = 0;
-		let lastClient = { x: 0, y: 0 };
-		// container-relative, via one fresh live measurement each time. clientX
-		// and a fresh getBoundingClientRect() are always in the same live,
-		// viewport-relative frame at any given instant, so subtracting them
-		// directly is scroll/zoom/pan-invariant with nothing else needed.
-		// localPos updates unthrottled (your own cursor should feel instant);
-		// pos.value (the network-synced copy) is throttled separately — same
-		// underlying measurement for both, computed once, instead of two
-		// independent implementations that can drift apart
 		function updateCursorPos(clientX: number, clientY: number) {
-			const el = document.querySelector('[data-cursor-bounds]');
-			if (!el) return;
-			const rect = el.getBoundingClientRect();
-			const relative = toContainerRelative(clientX, clientY, rect);
-			localPos = relative;
-			hasLocalPos = true;
-
 			const now = Date.now();
-			if (now - lastSend < 20) return;
+			if (now - lastSend < network.posSendIntervalMs) return;
+			if (!container) return;
+			const rect = container.getBoundingClientRect();
+			const relative = toContainerRelative(clientX, clientY, rect);
 			lastSend = now;
 			pos.value = relative;
 		}
 
 		function handleMove(e: MouseEvent) {
 			lastClient = { x: e.clientX, y: e.clientY };
+			lastClientVv = currentVvState();
+			hasClient = true;
 			updateCursorPos(e.clientX, e.clientY);
-			detectCursorState(e.clientX, e.clientY);
+			detectCursorState(e.target as Element | null, e.clientX, e.clientY);
 		}
 		window.addEventListener('mousemove', handleMove);
 
-		// continuous re-measurement instead of trying to model every possible
-		// cause of movement (scroll, resize, pinch-zoom pan, or the browser
-		// internally trading regular scroll for visual-viewport offset — all of
-		// which turned out to be unreliable to reconstruct from separate APIs).
-		// floating-ui's autoUpdate does this properly (it's built specifically
-		// for "reliably know when a reference element's position changed"),
-		// with animationFrame:true as the fallback for cases like pinch-zoom
-		// that can't be reliably observed any other way — the same rAF-polling
-		// approach we built by hand, but from the library that already solved it
-		const referenceEl = document.querySelector('[data-cursor-bounds]');
-		const stopAutoUpdate = referenceEl
-			? autoUpdate(
-					referenceEl,
-					null,
-					() => {
-						measureOrigin();
-						recomputeHighlights();
-						updateCursorPos(lastClient.x, lastClient.y);
-					},
-					{ animationFrame: true }
-				)
-			: undefined;
+		let lastRect = container?.getBoundingClientRect() ?? { left: 0, top: 0 };
+		let rafId = requestAnimationFrame(function poll() {
+			const rect = container?.getBoundingClientRect();
+			if (rect && (rect.left !== lastRect.left || rect.top !== lastRect.top)) {
+				lastRect = { left: rect.left, top: rect.top };
+				measureOrigin();
+				recomputeHighlights();
+			}
+			viewportScale = window.visualViewport?.scale ?? 1;
+			if (hasClient) {
+				const vv = currentVvState();
+				const screenX = (lastClient.x - lastClientVv.left) * lastClientVv.scale;
+				const screenY = (lastClient.y - lastClientVv.top) * lastClientVv.scale;
+				const adjustedX = screenX / vv.scale + vv.left;
+				const adjustedY = screenY / vv.scale + vv.top;
+				updateCursorPos(adjustedX, adjustedY);
+				detectCursorState(document.elementFromPoint(adjustedX, adjustedY), adjustedX, adjustedY);
+			}
+			rafId = requestAnimationFrame(poll);
+		});
 
-		// cursor *type* changes are debounced (position isn't) — right at the edge
-		// of an element, hit-testing can flip back and forth for a moment, so we
-		// wait for a type to be stable for a beat before actually committing to it,
-		// instead of instantly flickering between icons
 		let pendingType: Property.Cursor = 'default';
 		let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 		function commitCursorType(type: Property.Cursor) {
@@ -264,30 +210,31 @@
 			clearTimeout(debounceTimer);
 			debounceTimer = setTimeout(() => {
 				cursorType.value = type;
-			}, 60);
+			}, debounce.cursorTypeMs);
 		}
 
-		// any <a href> anywhere on the page participates automatically, nothing to opt in.
-		// runs on every mousemove (not just mouseover) since your precise position
-		// within the *same* element can flip between "over text" and "over empty
-		// space" without ever crossing an element boundary
-		function detectCursorState(clientX: number, clientY: number) {
-			const { type, link } = detectCursorType(clientX, clientY);
+		function detectCursorState(target: Element | null, x: number, y: number) {
+			const { type, link } = detectCursorType(target, x, y);
 			hovering.value = link ? linkId(link) : null;
 			commitCursorType(type);
+			document.documentElement.style.setProperty(
+				'--cursor-icon-active',
+				type === 'text' ? 'var(--cursor-icon-text, text)' : ''
+			);
 		}
 		function handleOut(e: MouseEvent) {
 			if (!e.relatedTarget) {
-				// pointer left the whole window
 				hovering.value = null;
 				commitCursorType('default');
+				document.documentElement.style.setProperty('--cursor-icon-active', '');
 			}
 		}
 		window.addEventListener('mouseout', handleOut);
 
 		onDestroy(() => {
-			stopAutoUpdate?.();
-			resizeObserver.disconnect();
+			cancelAnimationFrame(rafId);
+			docResizeObserver.disconnect();
+			clearInterval(idleTicker);
 			window.removeEventListener('mousemove', handleMove);
 			window.removeEventListener('mouseout', handleOut);
 			document.removeEventListener('selectionchange', handleSelectionChange);
@@ -299,7 +246,6 @@
 		});
 	});
 
-	// switch rooms when navigating to a different page
 	$effect(() => {
 		switchRoom(page.url.pathname);
 		measureOrigin();
@@ -307,7 +253,6 @@
 		recomputeHighlights();
 	});
 
-	// one mechanism decides "is this link hovered by anyone" — you or someone else
 	$effect(() => {
 		const hoveredIds = new SvelteSet(Object.values(hovering.others));
 		if (hovering.value) hoveredIds.add(hovering.value);
@@ -318,22 +263,12 @@
 		}
 	});
 
-	// recompute whenever anyone's selection changes (their DOM hasn't moved,
-	// but ours might resolve to different rects even for the same range)
 	$effect(() => {
 		void Object.values(selection.others);
 		recomputeHighlights();
 	});
 </script>
 
-<!-- other users' text selections — negative z-index so it paints behind normal
-     content (any positive/positioned z-index always wins over unpositioned text,
-     regardless of the number, so this has to go below zero to sit behind it).
-     absolute + sized to the actual document, not `fixed`: plain absolutely
-     positioned content zooms/pans the same predictable way normal page content
-     does, `position: fixed` does not (inconsistent across browsers specifically
-     around pinch-zoom), which was dragging this along while panning instead of
-     holding still relative to the content -->
 <div
 	class="pointer-events-none absolute top-0 left-0 -z-10"
 	style="width: {docSize.width}px; height: {docSize.height}px;"
@@ -350,22 +285,22 @@
 	{/each}
 </div>
 
-<!-- every cursor — yours and everyone else's — through one shared template,
-     instead of two separate implementations that could (and did) drift apart.
-     native OS cursor is hidden site-wide; yours is included here once it's had
-     a real mousemove (hasLocalPos), so it doesn't show at (0, 0) beforehand -->
 <div
 	class="pointer-events-none absolute top-0 left-0 z-50 overflow-hidden"
 	style="width: {docSize.width}px; height: {docSize.height}px;"
 >
 	{#each cursorEntries as entry (entry.id)}
-		<Cursor
-			type={entry.type}
-			color={entry.color}
-			secondaryColor={entry.secondaryColor}
-			x={origin.left + entry.x}
-			y={origin.top + entry.y}
-			opacity={entry.id === 'self' ? 1 : 0.7}
-		/>
+		{@const opacity = cursor.remoteOpacity * idleFactor(entry.id)}
+		{#if opacity > 0}
+			<Cursor
+				type={entry.type}
+				color={entry.color}
+				secondaryColor={entry.secondaryColor}
+				x={origin.left + entry.x}
+				y={origin.top + entry.y}
+				scale={1 / viewportScale}
+				{opacity}
+			/>
+		{/if}
 	{/each}
 </div>
