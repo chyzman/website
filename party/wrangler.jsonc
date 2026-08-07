@@ -3,6 +3,7 @@
 	"name": "party",
 	"main": "src/index.ts",
 	"compatibility_date": "2026-08-04",
+	"routes": [{ "pattern": "sync.chyz.xyz", "custom_domain": true }],
 	"durable_objects": {
 		"bindings": [
 			{

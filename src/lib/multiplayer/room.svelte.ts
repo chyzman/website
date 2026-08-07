@@ -2,7 +2,19 @@ import PartySocket from 'partysocket';
 
 export type PresenceState = Record<string, unknown>;
 
-export const partyHost = import.meta.env.VITE_PARTY_HOST ?? 'localhost:8787';
+// deriving this from wherever the site happens to be running would break
+// under preview deployments (unrelated auto-generated hostnames), so the
+// real address is explicit and only ever declared once, in party's own
+// wrangler.jsonc route config - VITE_SYNC_HOST just has to match it
+export function partyBase(): { host: string; protocol: 'http' | 'https' } {
+	const host = import.meta.env.VITE_SYNC_HOST ?? (import.meta.env.DEV ? 'localhost:8787' : undefined);
+	if (!host) {
+		throw new Error(
+			'VITE_SYNC_HOST is not set - see party/wrangler.jsonc for the address it needs to match'
+		);
+	}
+	return { host, protocol: import.meta.env.DEV ? 'http' : 'https' };
+}
 
 type ServerMessage =
 	| { type: 'init'; presence: ({ id: string } & PresenceState)[] }
@@ -24,8 +36,10 @@ function clearPresence() {
 }
 
 export function connect(pathname: string) {
+	const { host, protocol } = partyBase();
 	socket = new PartySocket({
-		host: partyHost,
+		host,
+		protocol: protocol === 'https' ? 'wss' : 'ws',
 		party: 'cursor-room',
 		room: roomForPath(pathname)
 	});

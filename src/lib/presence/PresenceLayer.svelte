@@ -16,14 +16,13 @@
 	import { synced } from '$lib/multiplayer/synced.svelte';
 	import {
 		color,
-		DEFAULT_COLOR,
+		DEFAULT_PRIMARY,
 		secondaryColor,
-		DEFAULT_SECONDARY_COLOR,
+		DEFAULT_SECONDARY,
 		idle,
-		network,
-		debounce,
 		cursor
-	} from './settings.svelte';
+	} from '$lib/settings/settings.svelte';
+	import { UPDATE_INTERVAL, DEBOUNCE } from '$lib/settings/config';
 
 	function linkId(el: Element): string | null {
 		const href = el.getAttribute('href');
@@ -94,15 +93,35 @@
 	});
 
 	const lastActiveAt = synced<number | null>('lastActiveAt', null);
-	let now = $state(Date.now());
 
-	function idleFactor(id: string): number {
-		const last = lastActiveAt.others[id];
-		if (last == null) return 1;
-		const idleMs = now - last;
-		if (idleMs <= idle.graceMs) return 1;
-		return 1 - Math.min(1, (idleMs - idle.graceMs) / idle.fadeMs);
-	}
+	let fading = $state<Record<string, boolean>>({});
+	const fadeTimers = new SvelteMap<string, ReturnType<typeof setTimeout>>();
+	const knownLastActiveAt = new SvelteMap<string, number>();
+	$effect(() => {
+		const activeIds = new SvelteSet<string>();
+		for (const [id, last] of Object.entries(lastActiveAt.others)) {
+			if (last == null) continue;
+			activeIds.add(id);
+			if (knownLastActiveAt.get(id) === last) continue;
+			knownLastActiveAt.set(id, last);
+
+			clearTimeout(fadeTimers.get(id));
+			fading[id] = false;
+			fadeTimers.set(
+				id,
+				setTimeout(() => {
+					fading[id] = true;
+				}, idle.grace)
+			);
+		}
+		for (const id of knownLastActiveAt.keys()) {
+			if (activeIds.has(id)) continue;
+			clearTimeout(fadeTimers.get(id));
+			fadeTimers.delete(id);
+			knownLastActiveAt.delete(id);
+			delete fading[id];
+		}
+	});
 
 	type CursorEntry = {
 		id: string;
@@ -122,8 +141,8 @@
 					x: sm ? sm.x : p.x,
 					y: sm ? sm.y : p.y,
 					type: cursorType.others[id] ?? 'default',
-					color: color.others[id] ?? DEFAULT_COLOR,
-					secondaryColor: secondaryColor.others[id] ?? DEFAULT_SECONDARY_COLOR
+					color: color.others[id] ?? DEFAULT_PRIMARY,
+					secondaryColor: secondaryColor.others[id] ?? DEFAULT_SECONDARY
 				});
 			}
 		}
@@ -158,7 +177,7 @@
 		connect(page.url.pathname);
 		measureOrigin();
 		measureDocSize();
-		PerfectCursor.MAX_INTERVAL = cursor.perfectCursorMaxIntervalMs;
+		PerfectCursor.MAX_INTERVAL = UPDATE_INTERVAL + 5;
 
 		const container = document.querySelector('[data-cursor-bounds]');
 		const docResizeObserver = new ResizeObserver(measureDocSize);
@@ -173,14 +192,12 @@
 		let lastClient = { x: 0, y: 0 };
 		let lastClientVv = { left: 0, top: 0, scale: 1 };
 
-		const idleTicker = setInterval(() => (now = Date.now()), idle.tickIntervalMs);
-
 		let selectionTimer: ReturnType<typeof setTimeout> | undefined;
 		function handleSelectionChange() {
 			clearTimeout(selectionTimer);
 			selectionTimer = setTimeout(() => {
 				selection.value = container ? serializeSelection(container) : null;
-			}, debounce.selectionMs);
+			}, DEBOUNCE);
 		}
 		document.addEventListener('selectionchange', handleSelectionChange);
 
@@ -188,7 +205,7 @@
 		let lastSentPos: { x: number; y: number } | null = null;
 		function updateCursorPos(clientX: number, clientY: number) {
 			const now = Date.now();
-			if (now - lastSend < network.posSendIntervalMs) return;
+			if (now - lastSend < UPDATE_INTERVAL) return;
 			if (!container) return;
 			const rect = container.getBoundingClientRect();
 			const relative = toContainerRelative(clientX, clientY, rect);
@@ -236,7 +253,7 @@
 			clearTimeout(debounceTimer);
 			debounceTimer = setTimeout(() => {
 				cursorType.value = type;
-			}, debounce.cursorTypeMs);
+			}, DEBOUNCE);
 		}
 
 		function detectCursorState(target: Element | null, x: number, y: number) {
@@ -260,7 +277,6 @@
 		onDestroy(() => {
 			cancelAnimationFrame(rafId);
 			docResizeObserver.disconnect();
-			clearInterval(idleTicker);
 			window.removeEventListener('mousemove', handleMove);
 			window.removeEventListener('mouseout', handleOut);
 			document.removeEventListener('selectionchange', handleSelectionChange);
@@ -268,6 +284,8 @@
 			clearTimeout(selectionTimer);
 			for (const animator of cursorAnimators.values()) animator.dispose();
 			cursorAnimators.clear();
+			for (const timer of fadeTimers.values()) clearTimeout(timer);
+			fadeTimers.clear();
 			disconnect();
 		});
 	});
@@ -300,7 +318,7 @@
 	style="width: {docSize.width}px; height: {docSize.height}px;"
 >
 	{#each Object.entries(highlightRects) as [id, rects] (id)}
-		{@const rectColor = color.others[id] ?? DEFAULT_COLOR}
+		{@const rectColor = color.others[id] ?? DEFAULT_PRIMARY}
 		{#each rects as rect, i (i)}
 			<SelectionHighlight {rect} color={rectColor} />
 		{/each}
@@ -319,7 +337,8 @@
 			x={origin.left + entry.x}
 			y={origin.top + entry.y}
 			scale={1 / viewportScale}
-			opacity={cursor.remoteOpacity * idleFactor(entry.id)}
+			opacity={fading[entry.id] ? 0 : cursor.remoteOpacity}
+			fadeMs={fading[entry.id] ? idle.fade : 200}
 		/>
 	{/each}
 </div>

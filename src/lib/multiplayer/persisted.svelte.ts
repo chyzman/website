@@ -1,4 +1,4 @@
-import { partyHost } from './room.svelte';
+import { partyBase } from './room.svelte';
 import { synced } from './synced.svelte';
 
 const STORAGE_KEY = 'chyz:state';
@@ -24,7 +24,8 @@ function loadData(): Record<string, unknown> {
 let localData = loadData();
 
 async function persist() {
-	const res = await fetch(`http://${partyHost}/state/sign`, {
+	const { host, protocol } = partyBase();
+	const res = await fetch(`${protocol}://${host}/state/sign`, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify(localData)

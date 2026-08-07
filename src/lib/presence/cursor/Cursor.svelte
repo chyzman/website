@@ -1,6 +1,6 @@
 <script module lang="ts">
 	import type { Property } from 'csstype';
-	import { cursor as tuning } from '../settings.svelte';
+	import { cursor as tuning } from '$lib/settings/settings.svelte';
 
 	const iconFiles = import.meta.glob('./assets/*.svg', {
 		query: '?raw',
@@ -115,7 +115,8 @@
 		x,
 		y,
 		scale = 1,
-		opacity = 1
+		opacity = 1,
+		fadeMs = 200
 	}: {
 		type: Property.Cursor;
 		color: string;
@@ -124,6 +125,7 @@
 		y: number;
 		scale?: number;
 		opacity?: number;
+		fadeMs?: number;
 	} = $props();
 
 	let entry = $derived(cursors[type] ?? cursors.default!);
@@ -138,7 +140,7 @@
 
 <div
 	class="pointer-events-none absolute top-0 left-0"
-	style="color: {resolvedSecondary}; --cursor-primary: {color}; opacity: {opacity}; transition: opacity 400ms linear; transform-origin: {transformOrigin}; transform: {translate}"
+	style="color: {resolvedSecondary}; --cursor-primary: {color}; opacity: {opacity}; transition: opacity {fadeMs}ms linear; transform-origin: {transformOrigin}; transform: {translate}"
 >
 	<!-- eslint-disable-next-line svelte/no-at-html-tags -->
 	{@html entry.icon}

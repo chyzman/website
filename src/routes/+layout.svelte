@@ -3,7 +3,7 @@
 	import favicon from '$lib/assets/chyz.png';
 	import PresenceLayer from '$lib/presence/PresenceLayer.svelte';
 	import { resolve } from '$app/paths';
-	import { color, secondaryColor } from '$lib/presence/settings.svelte';
+	import { color, secondaryColor } from '$lib/settings/settings.svelte';
 	import { cursorCssValue } from '$lib/presence/cursor/Cursor.svelte';
 
 	let { children } = $props();

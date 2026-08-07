@@ -3,7 +3,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 vi.mock('$lib/multiplayer/room.svelte', () => ({
 	patch: vi.fn(),
 	presence: {},
-	partyHost: 'test.invalid'
+	partyBase: () => ({ host: 'test.invalid', protocol: 'http' })
 }));
 
 const STORAGE_KEY = 'chyz:state';
