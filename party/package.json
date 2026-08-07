@@ -16,8 +16,10 @@
     "partyserver": "^0.5.10"
   },
   "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.20.2",
     "@cloudflare/workers-types": "^5.20260801.1",
     "typescript": "^6.0.3",
+    "vitest": "^4.1.10",
     "wrangler": "^4.118.0"
   }
 }
