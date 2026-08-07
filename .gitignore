@@ -29,3 +29,6 @@ vite.config.ts.timestamp-*
 
 # Logs
 *.log
+
+*storybook.log
+storybook-static

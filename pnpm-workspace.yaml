@@ -6,5 +6,8 @@ allowBuilds:
   esbuild: true
   workerd: true
 
+minimumReleaseAgeExclude:
+  - '@chromatic-com/storybook@5.3.0'
+
 onlyBuiltDependencies:
   - esbuild

@@ -14,6 +14,12 @@ type ServerMessage =
 export const presence = $state<Record<string, PresenceState>>({});
 
 let socket: PartySocket | undefined;
+// everything this connection has ever patched, accumulated — resent in full
+// whenever the socket (re)opens, so a value set before the connection existed
+// (e.g. a persisted() value restored before connect() runs) and switching
+// rooms (a full reconnect to a different, blank-state room) both correctly
+// re-establish your presence, instead of only the *next* change after that
+let myState: PresenceState = {};
 
 function roomForPath(pathname: string) {
 	const slug = pathname.replace(/^\/+|\/+$/g, '').replace(/[^a-zA-Z0-9_-]/g, '-');
@@ -29,6 +35,12 @@ export function connect(pathname: string) {
 		host: partyHost,
 		party: 'cursor-room',
 		room: roomForPath(pathname)
+	});
+
+	socket.addEventListener('open', () => {
+		if (Object.keys(myState).length > 0) {
+			socket!.send(JSON.stringify({ type: 'patch', ...myState }));
+		}
 	});
 
 	socket.addEventListener('message', (event) => {
@@ -63,11 +75,17 @@ export function switchRoom(pathname: string) {
 
 /** Merge fields into your own presence state, syncing them to everyone else in the room. */
 export function patch(fields: PresenceState) {
-	socket?.send(JSON.stringify({ type: 'patch', ...fields }));
+	myState = { ...myState, ...fields };
+	// if the socket isn't open yet, no need to queue this individually — the
+	// full myState snapshot gets (re)sent as soon as it opens anyway
+	if (socket && socket.readyState === WebSocket.OPEN) {
+		socket.send(JSON.stringify({ type: 'patch', ...fields }));
+	}
 }
 
 export function disconnect() {
 	socket?.close();
 	socket = undefined;
+	myState = {};
 	clearPresence();
 }

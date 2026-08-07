@@ -2,65 +2,44 @@
 	import { onDestroy, onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { SvelteSet } from 'svelte/reactivity';
-	import defaultIcon from '$lib/assets/cursors/default.svg?raw';
-	import pointerIcon from '$lib/assets/cursors/pointer.svg?raw';
-	import textIcon from '$lib/assets/cursors/text.svg?raw';
-	import grabIcon from '$lib/assets/cursors/grab.svg?raw';
-	import grabbingIcon from '$lib/assets/cursors/grabbing.svg?raw';
+	import { autoUpdate } from '@floating-ui/dom';
+	import * as perfectCursorsPkg from 'perfect-cursors';
+	import type { PerfectCursor as PerfectCursorType } from 'perfect-cursors';
+	const { PerfectCursor } = perfectCursorsPkg;
+	import Cursor from './Cursor.svelte';
+	import type { Property } from 'csstype';
 	import { connect, disconnect, switchRoom } from '$lib/multiplayer/room.svelte';
 	import { synced } from '$lib/multiplayer/synced.svelte';
 	import { linkId } from '$lib/multiplayer/linkId';
+	import {
+		color,
+		DEFAULT_COLOR,
+		secondaryColor,
+		DEFAULT_SECONDARY_COLOR
+	} from '$lib/multiplayer/settings.svelte';
+	import { readViewportState, toContainerRelative, toDocumentSpace } from './positioning';
+	import { detectCursorType } from './cursorType';
 	import {
 		resolveSelectionRects,
 		serializeSelection,
 		type SerializedRange
 	} from '$lib/multiplayer/selectionPath';
 
-	// size/stroke-width/fill are baked into each svg file itself, since none
-	// of them actually vary per instance — only position and color (via
-	// currentColor, set by the wrapping element's class) do.
-	// 'grab'/'grabbing' aren't set anywhere yet, reserved for when physics
-	// objects can be hovered-to-grab vs actively dragged
-	const cursorIcons = {
-		default: defaultIcon,
-		pointer: pointerIcon,
-		text: textIcon,
-		grab: grabIcon,
-		grabbing: grabbingIcon
-	};
-	type CursorKind = keyof typeof cursorIcons;
-
-	// where each icon's meaningful "hotspot" is, as a fraction of its own
-	// 24x24 box — computed from each icon's actual path data, not guessed:
-	// - default: arrow tip starts at (4.037, 4.688)
-	// - pointer: the raised index finger peaks around (8, 2), well above
-	//   and left of center, not the middle of the icon
-	// - text: not a symmetric shape (see text.svg) — center is an approximation
-	// - grab: tallest finger peaks around (12, 6)
-	// - grabbing: a roughly symmetric fist shape, center is a fair approximation
-	const cursorHotspots: Record<CursorKind, { x: number; y: number }> = {
-		default: { x: 4.037 / 24, y: 4.688 / 24 },
-		pointer: { x: 8 / 24, y: 2 / 24 },
-		text: { x: 0.5, y: 0.5 },
-		grab: { x: 12 / 24, y: 6 / 24 },
-		grabbing: { x: 0.5, y: 0.5 }
-	};
-	const iconSize = 18;
-
 	// pos.x/y are pixel offsets from the content container's top-left corner —
 	// the container is a fixed width, so this lines up the same for every viewer,
 	// regardless of their own window size (unlike raw page coordinates would).
 	const pos = synced('pos', null as { x: number; y: number } | null);
 	const hovering = synced('hovering', null as string | null);
-	const cursorKind = synced<CursorKind>('cursorKind', 'default');
+	const cursorType = synced<Property.Cursor>('cursorType', 'default');
 	const selection = synced('selection', null as SerializedRange | null);
 
-	// document-relative position (clientX/Y + scroll), updated every mousemove
-	// with no throttling — this is what renders *your own* cursor, so it has to
-	// feel as instant as a native one. `pos.value` (network-synced) is throttled
-	// separately, but both are derived the same way, through the same code path
-	// below (see cursorEntries) — there's only one cursor-rendering implementation,
-	// not a separate one for "you" vs "everyone else" that could drift apart
+	// container-relative (same convention as pos.value, the network-synced
+	// version) — updated every mousemove with no throttling, since this is
+	// what renders *your own* cursor and has to feel instant, unlike pos.value
+	// which is throttled for the network. Deliberately *not* document-relative:
+	// origin (below) is the only place that converts to document space, used
+	// uniformly for rendering everyone including yourself, rather than two
+	// separate document-relative computations that can (and did) quietly drift
 	let localPos = $state({ x: 0, y: 0 });
 	// browsers don't report a mouse position until the first real mousemove —
 	// without this, localPos's (0, 0) default would render visibly in the
@@ -82,40 +61,100 @@
 		};
 	}
 
-	type CursorEntry = { id: string; x: number; y: number; kind: CursorKind };
+	// remote positions arrive as discrete, throttled network updates — this
+	// smooths the motion between them (spline interpolation via perfect-cursors,
+	// the library tldraw uses for the same problem) instead of every update
+	// being a visible small jump. your own cursor isn't smoothed at all, since
+	// it's raw local mouse input and should feel instant, not eased
+	const cursorAnimators = new Map<string, PerfectCursorType>();
+	let lastFed = new Map<string, string>();
+	let smoothed = $state<Record<string, { x: number; y: number }>>({});
+	$effect(() => {
+		const activeIds = new Set<string>();
+		for (const [id, p] of Object.entries(pos.others)) {
+			if (!p) continue;
+			activeIds.add(id);
+			const key = `${p.x},${p.y}`;
+			if (lastFed.get(id) === key) continue;
+			lastFed.set(id, key);
+			let animator = cursorAnimators.get(id);
+			if (!animator) {
+				animator = new PerfectCursor((point) => {
+					smoothed[id] = { x: point[0], y: point[1] };
+				});
+				cursorAnimators.set(id, animator);
+			}
+			animator.addPoint([p.x, p.y]);
+		}
+		for (const [id, animator] of cursorAnimators) {
+			if (!activeIds.has(id)) {
+				animator.dispose();
+				cursorAnimators.delete(id);
+				lastFed.delete(id);
+				delete smoothed[id];
+			}
+		}
+	});
+
+	type CursorEntry = {
+		id: string;
+		x: number;
+		y: number;
+		type: Property.Cursor;
+		color: string;
+		secondaryColor: string;
+	};
 	// one combined list — yourself plus everyone else — rendered through the
-	// exact same template below, instead of two separate implementations
+	// exact same template below, instead of two separate implementations.
+	// each person's own chosen colors travel with their entry, instead of
+	// everyone sharing one static accent color
 	let cursorEntries = $derived.by((): CursorEntry[] => {
 		const entries: CursorEntry[] = [];
 		for (const [id, p] of Object.entries(pos.others)) {
-			if (p) entries.push({ id, x: p.x, y: p.y, kind: cursorKind.others[id] ?? 'default' });
+			if (p) {
+				const sm = smoothed[id];
+				entries.push({
+					id,
+					x: sm ? sm.x : p.x,
+					y: sm ? sm.y : p.y,
+					type: cursorType.others[id] ?? 'default',
+					color: color.others[id] ?? DEFAULT_COLOR,
+					secondaryColor: secondaryColor.others[id] ?? DEFAULT_SECONDARY_COLOR
+				});
+			}
 		}
-		// pushed last so your own cursor renders on top of everyone else's
+		// pushed last so your own cursor renders on top of everyone else's.
+		// already container-relative, same as everyone else's entries — no
+		// separate conversion needed here
 		if (hasLocalPos) {
 			entries.push({
 				id: 'self',
-				x: localPos.x - origin.left,
-				y: localPos.y - origin.top,
-				kind: cursorKind.value
+				x: localPos.x,
+				y: localPos.y,
+				type: cursorType.value,
+				color: color.value,
+				secondaryColor: secondaryColor.value
 			});
 		}
 		return entries;
 	});
 
 	// resolved fresh from each remote selection's path, on our own current DOM —
-	// getClientRects() is always viewport-relative; window.scrollX/Y converts
-	// that to document-relative, since the highlight layer is an absolutely
-	// (not fixed) positioned overlay anchored at the document's origin
+	// getClientRects() is always viewport-relative, converted via toDocumentSpace
+	// since the highlight layer is an absolutely (not fixed) positioned overlay
+	// anchored at the document's origin
 	let highlightRects = $state<Record<string, DOMRect[]>>({});
 	function recomputeHighlights() {
 		const root = document.querySelector('[data-cursor-bounds]');
 		if (!root) return;
+		const viewport = readViewportState();
 		const next: Record<string, DOMRect[]> = {};
 		for (const [id, range] of Object.entries(selection.others)) {
 			if (!range) continue;
-			next[id] = resolveSelectionRects(root, range).map(
-				(r) => new DOMRect(r.left + window.scrollX, r.top + window.scrollY, r.width, r.height)
-			);
+			next[id] = resolveSelectionRects(root, range).map((r) => {
+				const p = toDocumentSpace(r.left, r.top, viewport);
+				return new DOMRect(p.x, p.y, r.width, r.height);
+			});
 		}
 		highlightRects = next;
 	}
@@ -126,42 +165,21 @@
 		const el = document.querySelector('[data-cursor-bounds]');
 		if (!el) return;
 		const rect = el.getBoundingClientRect();
-		origin = { left: rect.left + window.scrollX, top: rect.top + window.scrollY };
-	}
-
-	// whether (x, y) is actually over rendered text glyphs, not just somewhere
-	// inside a text-bearing block (which would also include empty trailing
-	// space after short lines, and gaps between lines)
-	function isOverText(x: number, y: number): boolean {
-		let range: Range | null = null;
-		if (document.caretRangeFromPoint) {
-			range = document.caretRangeFromPoint(x, y);
-		} else if (document.caretPositionFromPoint) {
-			const caret = document.caretPositionFromPoint(x, y);
-			if (caret) {
-				range = document.createRange();
-				range.setStart(caret.offsetNode, caret.offset);
-				range.collapse(true);
-			}
-		}
-		if (!range || range.startContainer.nodeType !== Node.TEXT_NODE) return false;
-
-		// expand to the whole text node so getClientRects reflects the actual
-		// rendered line box(es), not just a zero-width caret position
-		const full = document.createRange();
-		full.selectNodeContents(range.startContainer);
-		for (const rect of full.getClientRects()) {
-			if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) {
-				return true;
-			}
-		}
-		return false;
+		const p = toDocumentSpace(rect.left, rect.top, readViewportState());
+		origin = { left: p.x, top: p.y };
 	}
 
 	onMount(() => {
 		connect(page.url.pathname);
 		measureOrigin();
 		measureDocSize();
+		// each animated segment's duration is however long it actually took to
+		// receive that update, capped at MAX_INTERVAL - the default (300ms)
+		// means any network gap that large makes the cursor visibly lag behind
+		// while it eases through the backlog. lower this to bound how slow a
+		// single catch-up animation can ever feel, at the cost of it being
+		// slightly less smooth right after a real gap
+		PerfectCursor.MAX_INTERVAL = 25;
 		// document size can also change from content growing/shrinking, not just
 		// the window resizing (e.g. someone spawning physics objects later) —
 		// ResizeObserver catches that
@@ -180,32 +198,33 @@
 		}
 		document.addEventListener('selectionchange', handleSelectionChange);
 
-		let last = 0;
+		let lastSend = 0;
 		let lastClient = { x: 0, y: 0 };
-		// container-relative, via a fresh live measurement each time. clientX and
-		// a fresh getBoundingClientRect() are always in the same live, viewport-
-		// relative frame at any given instant, so subtracting them directly is
-		// scroll/zoom/pan-invariant with nothing else needed
-		function updatePos(clientX: number, clientY: number) {
-			const now = Date.now();
-			if (now - last < 33) return;
-			last = now;
+		// container-relative, via one fresh live measurement each time. clientX
+		// and a fresh getBoundingClientRect() are always in the same live,
+		// viewport-relative frame at any given instant, so subtracting them
+		// directly is scroll/zoom/pan-invariant with nothing else needed.
+		// localPos updates unthrottled (your own cursor should feel instant);
+		// pos.value (the network-synced copy) is throttled separately — same
+		// underlying measurement for both, computed once, instead of two
+		// independent implementations that can drift apart
+		function updateCursorPos(clientX: number, clientY: number) {
 			const el = document.querySelector('[data-cursor-bounds]');
 			if (!el) return;
 			const rect = el.getBoundingClientRect();
-			pos.value = { x: clientX - rect.left, y: clientY - rect.top };
-		}
-		// document-relative (matches `origin`'s convention), so cursorEntries can
-		// render it the same way as everyone else's synced position
-		function updateLocalPos(clientX: number, clientY: number) {
-			localPos = { x: clientX + window.scrollX, y: clientY + window.scrollY };
+			const relative = toContainerRelative(clientX, clientY, rect);
+			localPos = relative;
 			hasLocalPos = true;
+
+			const now = Date.now();
+			if (now - lastSend < 20) return;
+			lastSend = now;
+			pos.value = relative;
 		}
 
 		function handleMove(e: MouseEvent) {
 			lastClient = { x: e.clientX, y: e.clientY };
-			updateLocalPos(e.clientX, e.clientY);
-			updatePos(e.clientX, e.clientY);
+			updateCursorPos(e.clientX, e.clientY);
 			detectCursorState(e.clientX, e.clientY);
 		}
 		window.addEventListener('mousemove', handleMove);
@@ -214,31 +233,37 @@
 		// cause of movement (scroll, resize, pinch-zoom pan, or the browser
 		// internally trading regular scroll for visual-viewport offset — all of
 		// which turned out to be unreliable to reconstruct from separate APIs).
-		// getBoundingClientRect() is always the live ground truth regardless of
-		// the cause, so just re-read it every frame instead of reasoning about
-		// which event fired
-		let rafId: number;
-		function tick() {
-			measureOrigin();
-			recomputeHighlights();
-			updateLocalPos(lastClient.x, lastClient.y);
-			updatePos(lastClient.x, lastClient.y);
-			rafId = requestAnimationFrame(tick);
-		}
-		rafId = requestAnimationFrame(tick);
+		// floating-ui's autoUpdate does this properly (it's built specifically
+		// for "reliably know when a reference element's position changed"),
+		// with animationFrame:true as the fallback for cases like pinch-zoom
+		// that can't be reliably observed any other way — the same rAF-polling
+		// approach we built by hand, but from the library that already solved it
+		const referenceEl = document.querySelector('[data-cursor-bounds]');
+		const stopAutoUpdate = referenceEl
+			? autoUpdate(
+					referenceEl,
+					null,
+					() => {
+						measureOrigin();
+						recomputeHighlights();
+						updateCursorPos(lastClient.x, lastClient.y);
+					},
+					{ animationFrame: true }
+				)
+			: undefined;
 
-		// cursor *kind* changes are debounced (position isn't) — right at the edge
+		// cursor *type* changes are debounced (position isn't) — right at the edge
 		// of an element, hit-testing can flip back and forth for a moment, so we
-		// wait for a kind to be stable for a beat before actually committing to it,
+		// wait for a type to be stable for a beat before actually committing to it,
 		// instead of instantly flickering between icons
-		let pendingKind: CursorKind = 'default';
+		let pendingType: Property.Cursor = 'default';
 		let debounceTimer: ReturnType<typeof setTimeout> | undefined;
-		function commitCursorKind(kind: CursorKind) {
-			if (kind === pendingKind) return;
-			pendingKind = kind;
+		function commitCursorType(type: Property.Cursor) {
+			if (type === pendingType) return;
+			pendingType = type;
 			clearTimeout(debounceTimer);
 			debounceTimer = setTimeout(() => {
-				cursorKind.value = kind;
+				cursorType.value = type;
 			}, 60);
 		}
 
@@ -247,42 +272,29 @@
 		// within the *same* element can flip between "over text" and "over empty
 		// space" without ever crossing an element boundary
 		function detectCursorState(clientX: number, clientY: number) {
-			const target = document.elementFromPoint(clientX, clientY) as HTMLElement | null;
-			if (!target) return;
-
-			const link = target.closest?.('a[href]');
+			const { type, link } = detectCursorType(clientX, clientY);
 			hovering.value = link ? linkId(link) : null;
-
-			// --cursor-hint (not the real `cursor` property, which we force to
-			// `none` everywhere to hide the native cursor) carries the semantic
-			// intent, so CSS stays the single source of truth for what counts
-			// as "text" vs "pointer" instead of a separate tag-name check here
-			const hint = getComputedStyle(target).getPropertyValue('--cursor-hint').trim();
-			if (hint === 'pointer') {
-				commitCursorKind('pointer');
-			} else if (hint === 'text' && isOverText(clientX, clientY)) {
-				commitCursorKind('text');
-			} else {
-				commitCursorKind('default');
-			}
+			commitCursorType(type);
 		}
 		function handleOut(e: MouseEvent) {
 			if (!e.relatedTarget) {
 				// pointer left the whole window
 				hovering.value = null;
-				commitCursorKind('default');
+				commitCursorType('default');
 			}
 		}
 		window.addEventListener('mouseout', handleOut);
 
 		onDestroy(() => {
-			cancelAnimationFrame(rafId);
+			stopAutoUpdate?.();
 			resizeObserver.disconnect();
 			window.removeEventListener('mousemove', handleMove);
 			window.removeEventListener('mouseout', handleOut);
 			document.removeEventListener('selectionchange', handleSelectionChange);
 			clearTimeout(debounceTimer);
 			clearTimeout(selectionTimer);
+			for (const animator of cursorAnimators.values()) animator.dispose();
+			cursorAnimators.clear();
 			disconnect();
 		});
 	});
@@ -327,11 +339,12 @@
 	style="width: {docSize.width}px; height: {docSize.height}px;"
 >
 	{#each Object.entries(highlightRects) as [id, rects] (id)}
+		{@const rectColor = color.others[id] ?? DEFAULT_COLOR}
 		{#each rects as rect, i (i)}
 			<div
-				class="bg-accent/25 absolute"
+				class="absolute opacity-25"
 				style="left: {rect.left}px; top: {rect.top - 2}px; width: {rect.width}px; height: {rect.height +
-					4}px;"
+					4}px; background-color: {rectColor};"
 			></div>
 		{/each}
 	{/each}
@@ -346,19 +359,13 @@
 	style="width: {docSize.width}px; height: {docSize.height}px;"
 >
 	{#each cursorEntries as entry (entry.id)}
-		{@const icon = cursorIcons[entry.kind]}
-		{@const hotspot = cursorHotspots[entry.kind]}
-		{@const translate = `translate(${origin.left + entry.x - hotspot.x * iconSize}px, ${
-			origin.top + entry.y - hotspot.y * iconSize
-		}px)`}
-		<div
-			class="text-accent absolute top-0 left-0 transition-transform duration-[30ms] ease-linear {entry.id ===
-			'self'
-				? 'opacity-100'
-				: 'opacity-70'}"
-			style="transform: {translate}"
-		>
-			{@html icon}
-		</div>
+		<Cursor
+			type={entry.type}
+			color={entry.color}
+			secondaryColor={entry.secondaryColor}
+			x={origin.left + entry.x}
+			y={origin.top + entry.y}
+			opacity={entry.id === 'self' ? 1 : 0.7}
+		/>
 	{/each}
 </div>

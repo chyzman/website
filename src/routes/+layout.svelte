@@ -1,10 +1,18 @@
 <script lang="ts">
 	import './layout.css';
+	import './hide-native-cursor.css';
 	import favicon from '$lib/assets/chyz.png';
 	import CursorLayer from '$lib/cursors/CursorLayer.svelte';
 	import { resolve } from '$app/paths';
+	import { color } from '$lib/multiplayer/settings.svelte';
 
 	let { children } = $props();
+
+	// only things specific to *you* (your cursor, your own ::selection) read
+	// this — page UI like link color stays the shared, fixed site accent
+	$effect(() => {
+		document.documentElement.style.setProperty('--user-color', color.value);
+	});
 </script>
 
 <svelte:head><link rel="icon" type="image/png" href={favicon} /></svelte:head>

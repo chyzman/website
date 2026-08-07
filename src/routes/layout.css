@@ -17,14 +17,6 @@ body {
 	@apply bg-canvas font-mono text-ink antialiased;
 }
 
-/* the site renders its own cursor (CursorLayer) everywhere, for everyone.
-   this hides the *real* cursor — the semantic hint of what it should look
-   like lives in --cursor-hint below, kept separate so hiding the native
-   cursor doesn't also erase the information CursorLayer needs to read */
-* {
-	cursor: none !important;
-}
-
 a {
 	@apply text-accent underline underline-offset-2;
 	--cursor-hint: pointer;
@@ -34,10 +26,12 @@ a {
 	@apply opacity-80;
 }
 
-/* matches the synced highlight color other people's selections render with,
-   instead of the browser's default blue */
+/* your own selection, specifically — reads --user-color (your personal
+   choice, set in +layout.svelte) rather than the shared site accent, since
+   this is about you, not page UI. falls back to the site accent if
+   --user-color isn't set yet (e.g. before the effect runs) */
 ::selection {
-	@apply bg-accent/25;
+	background-color: color-mix(in oklab, var(--user-color, var(--color-accent)) 25%, transparent);
 }
 
 /* read via getComputedStyle by the multiplayer cursor icon, instead of
