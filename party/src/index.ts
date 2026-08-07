@@ -32,14 +32,12 @@ export class CursorRoom extends Server<Env> {
 			return;
 		}
 		if (parsed.type !== "patch") return;
-		const patch: PresenceState = {
-			...Object.fromEntries(Object.entries(parsed).filter(([key]) => key !== "type")),
-			// server's own clock, stamped on every patch regardless of content -
-			// generic activity signal (not cursor-specific), so it's consistent
-			// for every viewer including someone who just joined, instead of each
-			// client tracking "idle" against its own local clock/history
-			lastActiveAt: Date.now(),
-		};
+		const fields = Object.fromEntries(Object.entries(parsed).filter(([key]) => key !== "type"));
+		const prevState: PresenceState = connection.state ?? {};
+		const changed = Object.entries(fields).some(
+			([key, value]) => JSON.stringify(prevState[key]) !== JSON.stringify(value)
+		);
+		const patch: PresenceState = changed ? { ...fields, lastActiveAt: Date.now() } : fields;
 
 		connection.setState((prev) => ({ ...prev, ...patch }));
 

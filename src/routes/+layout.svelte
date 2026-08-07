@@ -1,10 +1,10 @@
 <script lang="ts">
 	import './layout.css';
 	import favicon from '$lib/assets/chyz.png';
-	import CursorLayer from '$lib/cursors/CursorLayer.svelte';
+	import PresenceLayer from '$lib/presence/PresenceLayer.svelte';
 	import { resolve } from '$app/paths';
-	import { color, secondaryColor } from '$lib/multiplayer/settings.svelte';
-	import { cursorCssValue } from '$lib/cursors/Cursor.svelte';
+	import { color, secondaryColor } from '$lib/presence/settings.svelte';
+	import { cursorCssValue } from '$lib/presence/cursor/Cursor.svelte';
 
 	let { children } = $props();
 
@@ -26,7 +26,7 @@
 </script>
 
 <svelte:head><link rel="icon" type="image/png" href={favicon} /></svelte:head>
-<CursorLayer />
+<PresenceLayer />
 <div class="mx-auto flex min-h-screen w-[48rem] flex-col px-6" data-cursor-bounds>
 	<nav class="flex gap-6 border-b border-line py-4 text-sm">
 		<a href={resolve('/')}>Home</a>

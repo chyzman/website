@@ -4,7 +4,10 @@
 	"version": "0.0.1",
 	"type": "module",
 	"scripts": {
-		"dev": "vite dev",
+		"dev": "pnpm run dev:site & pnpm run dev:party & wait",
+		"dev:site": "vite dev",
+		"dev:party": "pnpm --filter party dev",
+		"dev:prod": "vite dev --mode prod-party",
 		"build": "vite build",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",

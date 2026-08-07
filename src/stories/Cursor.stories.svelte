@@ -1,6 +1,10 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
-	import Cursor, { cursorSize, illustratedTypes } from '$lib/cursors/Cursor.svelte';
+	import Cursor, {
+		cursorSize,
+		cursorHotspotFraction,
+		illustratedTypes
+	} from '$lib/presence/cursor/Cursor.svelte';
 	import type { Property } from 'csstype';
 
 	type Args = {
@@ -68,10 +72,12 @@
 		<div style="display: flex; flex-wrap: wrap; gap: 12px;">
 			{#each types as type (type)}
 				{@const box = cursorSize(type)}
+				{@const fraction = cursorHotspotFraction(type)}
 				<div style="display: flex; flex-direction: column; align-items: center; gap: 4px;">
 					<div style="position: relative; width: 70px; height: 70px;">
 						<div
-							style="position: absolute; left: 50%; top: 50%; width: {box.width}px; height: {box.height}px; transform: translate(-50%, -50%); cursor: {type}; {args.showOutlines
+							style="position: absolute; left: {35 - fraction.x * box.width}px; top: {35 -
+								fraction.y * box.height}px; width: {box.width}px; height: {box.height}px; cursor: {type}; {args.showOutlines
 								? 'outline: 1px solid red;'
 								: ''}"
 						></div>

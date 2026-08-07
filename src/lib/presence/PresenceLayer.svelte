@@ -5,25 +5,48 @@
 	import * as perfectCursorsPkg from 'perfect-cursors';
 	import type { PerfectCursor as PerfectCursorType } from 'perfect-cursors';
 	const { PerfectCursor } = perfectCursorsPkg;
-	import Cursor from './Cursor.svelte';
+	import Cursor, { detectCursorType } from './cursor/Cursor.svelte';
+	import SelectionHighlight, {
+		resolveSelectionRects,
+		serializeSelection,
+		type SerializedRange
+	} from './selection/SelectionHighlight.svelte';
 	import type { Property } from 'csstype';
 	import { connect, disconnect, switchRoom } from '$lib/multiplayer/room.svelte';
 	import { synced } from '$lib/multiplayer/synced.svelte';
-	import { linkId } from '$lib/multiplayer/linkId';
 	import {
 		color,
 		DEFAULT_COLOR,
 		secondaryColor,
-		DEFAULT_SECONDARY_COLOR
-	} from '$lib/multiplayer/settings.svelte';
-	import { readViewportState, toContainerRelative, toDocumentSpace } from './positioning';
-	import { detectCursorType } from './cursorType';
-	import {
-		resolveSelectionRects,
-		serializeSelection,
-		type SerializedRange
-	} from '$lib/multiplayer/selectionPath';
-	import { idle, network, debounce, cursor } from './tuning';
+		DEFAULT_SECONDARY_COLOR,
+		idle,
+		network,
+		debounce,
+		cursor
+	} from './settings.svelte';
+
+	function linkId(el: Element): string | null {
+		const href = el.getAttribute('href');
+		if (!href) return null;
+		const siblings = document.querySelectorAll(`a[href="${CSS.escape(href)}"]`);
+		const index = Array.from(siblings).indexOf(el);
+		return `${href}#${index}`;
+	}
+
+	type ViewportState = { scrollX: number; scrollY: number };
+	function readViewportState(): ViewportState {
+		return { scrollX: window.scrollX, scrollY: window.scrollY };
+	}
+	function toDocumentSpace(x: number, y: number, viewport: ViewportState): { x: number; y: number } {
+		return { x: x + viewport.scrollX, y: y + viewport.scrollY };
+	}
+	function toContainerRelative(
+		clientX: number,
+		clientY: number,
+		containerRect: { left: number; top: number }
+	): { x: number; y: number } {
+		return { x: clientX - containerRect.left, y: clientY - containerRect.top };
+	}
 
 	const pos = synced('pos', null as { x: number; y: number } | null);
 	const hovering = synced('hovering', null as string | null);
@@ -162,13 +185,16 @@
 		document.addEventListener('selectionchange', handleSelectionChange);
 
 		let lastSend = 0;
+		let lastSentPos: { x: number; y: number } | null = null;
 		function updateCursorPos(clientX: number, clientY: number) {
 			const now = Date.now();
 			if (now - lastSend < network.posSendIntervalMs) return;
 			if (!container) return;
 			const rect = container.getBoundingClientRect();
 			const relative = toContainerRelative(clientX, clientY, rect);
+			if (lastSentPos && lastSentPos.x === relative.x && lastSentPos.y === relative.y) return;
 			lastSend = now;
+			lastSentPos = relative;
 			pos.value = relative;
 		}
 
@@ -276,11 +302,7 @@
 	{#each Object.entries(highlightRects) as [id, rects] (id)}
 		{@const rectColor = color.others[id] ?? DEFAULT_COLOR}
 		{#each rects as rect, i (i)}
-			<div
-				class="absolute opacity-25"
-				style="left: {rect.left}px; top: {rect.top - 2}px; width: {rect.width}px; height: {rect.height +
-					4}px; background-color: {rectColor};"
-			></div>
+			<SelectionHighlight {rect} color={rectColor} />
 		{/each}
 	{/each}
 </div>
@@ -290,17 +312,14 @@
 	style="width: {docSize.width}px; height: {docSize.height}px;"
 >
 	{#each cursorEntries as entry (entry.id)}
-		{@const opacity = cursor.remoteOpacity * idleFactor(entry.id)}
-		{#if opacity > 0}
-			<Cursor
-				type={entry.type}
-				color={entry.color}
-				secondaryColor={entry.secondaryColor}
-				x={origin.left + entry.x}
-				y={origin.top + entry.y}
-				scale={1 / viewportScale}
-				{opacity}
-			/>
-		{/if}
+		<Cursor
+			type={entry.type}
+			color={entry.color}
+			secondaryColor={entry.secondaryColor}
+			x={origin.left + entry.x}
+			y={origin.top + entry.y}
+			scale={1 / viewportScale}
+			opacity={cursor.remoteOpacity * idleFactor(entry.id)}
+		/>
 	{/each}
 </div>

@@ -2,7 +2,7 @@ import PartySocket from 'partysocket';
 
 export type PresenceState = Record<string, unknown>;
 
-export const partyHost = import.meta.env.VITE_PARTY_HOST ?? 'localhost:8788';
+export const partyHost = import.meta.env.VITE_PARTY_HOST ?? 'localhost:8787';
 
 type ServerMessage =
 	| { type: 'init'; presence: ({ id: string } & PresenceState)[] }

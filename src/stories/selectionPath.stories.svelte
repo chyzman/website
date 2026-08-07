@@ -1,7 +1,10 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf';
 	import { expect, within } from 'storybook/test';
-	import { serializeSelection, resolveSelectionRects } from '$lib/multiplayer/selectionPath';
+	import {
+		serializeSelection,
+		resolveSelectionRects
+	} from '$lib/presence/selection/SelectionHighlight.svelte';
 
 	const { Story } = defineMeta({
 		title: 'Multiplayer/selectionPath'
