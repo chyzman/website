@@ -109,32 +109,66 @@
 
 	const lastActiveAt = synced<number | null>('lastActiveAt', null);
 
-	let fading = $state<Record<string, boolean>>({});
+	let fadeOpacity = $state<Record<string, number>>({});
+	let fadeDuration = $state<Record<string, number>>({});
 	const fadeTimers = new SvelteMap<string, ReturnType<typeof setTimeout>>();
 	const knownLastActiveAt = new SvelteMap<string, number>();
+
+	type FadeStep = { opacity: number; duration: number };
+	function scheduleFade(id: string, immediate: FadeStep, next: (FadeStep & { delay: number }) | null) {
+		fadeOpacity[id] = immediate.opacity;
+		fadeDuration[id] = immediate.duration;
+		if (next) {
+			fadeTimers.set(
+				id,
+				setTimeout(() => {
+					fadeDuration[id] = next.duration;
+					fadeOpacity[id] = next.opacity;
+				}, next.delay)
+			);
+		}
+	}
+
 	$effect(() => {
 		const activeIds = new SvelteSet<string>();
 		for (const [id, last] of Object.entries(lastActiveAt.others)) {
 			if (last == null) continue;
 			activeIds.add(id);
 			if (knownLastActiveAt.get(id) === last) continue;
+			const isNew = !knownLastActiveAt.has(id);
 			knownLastActiveAt.set(id, last);
 
 			clearTimeout(fadeTimers.get(id));
-			fading[id] = false;
-			fadeTimers.set(
-				id,
-				setTimeout(() => {
-					fading[id] = true;
-				}, idle.grace)
-			);
+			const sinceFadeStart = Date.now() - last - idle.grace;
+
+			let immediate: FadeStep;
+			let next: (FadeStep & { delay: number }) | null;
+			if (sinceFadeStart < 0) {
+				immediate = { opacity: 1, duration: 200 };
+				next = { delay: -sinceFadeStart, opacity: 0, duration: idle.fade };
+			} else if (sinceFadeStart < idle.fade) {
+				immediate = { opacity: 1 - sinceFadeStart / idle.fade, duration: 0 };
+				next = { delay: 0, opacity: 0, duration: idle.fade - sinceFadeStart };
+			} else {
+				immediate = { opacity: 0, duration: 0 };
+				next = null;
+			}
+
+			if (isNew) {
+				fadeOpacity[id] = 0;
+				fadeDuration[id] = 0;
+				setTimeout(() => scheduleFade(id, { ...immediate, duration: 200 }, next), 0);
+			} else {
+				scheduleFade(id, immediate, next);
+			}
 		}
 		for (const id of knownLastActiveAt.keys()) {
 			if (activeIds.has(id)) continue;
 			clearTimeout(fadeTimers.get(id));
 			fadeTimers.delete(id);
 			knownLastActiveAt.delete(id);
-			delete fading[id];
+			delete fadeOpacity[id];
+			delete fadeDuration[id];
 		}
 	});
 
@@ -362,9 +396,7 @@
 	{#each Object.entries(highlightRects) as [id, rects] (id)}
 		{@const rectColor = color.others[id] ?? DEFAULT_PRIMARY}
 		<div
-			style="opacity: {fading[id] ? 0 : 1}; transition: opacity {fading[id]
-				? idle.fade
-				: 200}ms linear;"
+			style="opacity: {fadeOpacity[id] ?? 1}; transition: opacity {fadeDuration[id] ?? 200}ms linear;"
 		>
 			{#each rects as rect, i (i)}
 				<SelectionHighlight {rect} color={rectColor} />
@@ -397,9 +429,8 @@
 	{#each cursorEntries as entry (entry.id)}
 		{@const messages = chatMessages.others[entry.id]}
 		<div
-			style="opacity: {fading[entry.id]
-				? 0
-				: 1}; transition: opacity {fading[entry.id] ? idle.fade : 200}ms linear;"
+			style="opacity: {fadeOpacity[entry.id] ?? 1}; transition: opacity {fadeDuration[entry.id] ??
+				200}ms linear;"
 		>
 			{#if messages?.length || typing.others[entry.id]}
 				<div
