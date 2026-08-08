@@ -396,7 +396,7 @@
 	{#each Object.entries(highlightRects) as [id, rects] (id)}
 		{@const rectColor = color.others[id] ?? DEFAULT_PRIMARY}
 		<div
-			style="opacity: {fadeOpacity[id] ?? 1}; transition: opacity {fadeDuration[id] ?? 200}ms linear;"
+			style="opacity: {fadeOpacity[id] ?? 0}; transition: opacity {fadeDuration[id] ?? 200}ms linear;"
 		>
 			{#each rects as rect, i (i)}
 				<SelectionHighlight {rect} color={rectColor} />
@@ -429,7 +429,7 @@
 	{#each cursorEntries as entry (entry.id)}
 		{@const messages = chatMessages.others[entry.id]}
 		<div
-			style="opacity: {fadeOpacity[entry.id] ?? 1}; transition: opacity {fadeDuration[entry.id] ??
+			style="opacity: {fadeOpacity[entry.id] ?? 0}; transition: opacity {fadeDuration[entry.id] ??
 				200}ms linear;"
 		>
 			{#if messages?.length || typing.others[entry.id]}
