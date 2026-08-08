@@ -3,28 +3,24 @@
 	import favicon from '$lib/assets/chyz.png';
 	import PresenceLayer from '$lib/presence/PresenceLayer.svelte';
 	import { resolve } from '$app/paths';
-	import { color, secondaryColor } from '$lib/settings/settings.svelte';
+	import { myColors } from '$lib/settings/settings.svelte';
 	import { cursorCssValue } from '$lib/presence/cursor/Cursor.svelte';
-	import { centralColor } from 'utils';
 
 	let { children } = $props();
 
 	$effect(() => {
-		document.documentElement.style.setProperty(
-			'--user-color',
-			centralColor(color.value, secondaryColor.value)
-		);
+		document.documentElement.style.setProperty('--user-color', myColors.central);
 		document.documentElement.style.setProperty(
 			'--cursor-icon-default',
-			cursorCssValue('default', color.value, secondaryColor.value, 'default')
+			cursorCssValue('default', myColors.color, myColors.secondaryColor, 'default')
 		);
 		document.documentElement.style.setProperty(
 			'--cursor-icon-pointer',
-			cursorCssValue('pointer', color.value, secondaryColor.value, 'pointer')
+			cursorCssValue('pointer', myColors.color, myColors.secondaryColor, 'pointer')
 		);
 		document.documentElement.style.setProperty(
 			'--cursor-icon-text',
-			cursorCssValue('text', color.value, secondaryColor.value, 'text')
+			cursorCssValue('text', myColors.color, myColors.secondaryColor, 'text')
 		);
 	});
 </script>

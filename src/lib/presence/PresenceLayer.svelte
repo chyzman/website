@@ -22,10 +22,12 @@
 		DEFAULT_PRIMARY,
 		secondaryColor,
 		DEFAULT_SECONDARY,
+		myColors,
 		idle,
 		cursor,
 		chat,
-		DEBOUNCE
+		DEBOUNCE,
+		type Colors
 	} from '$lib/settings/settings.svelte';
 	import { centralColor } from 'utils';
 	import { UPDATE_INTERVAL, MAX_CHAT_MESSAGES, type ChatMessage } from 'shared';
@@ -177,21 +179,25 @@
 		x: number;
 		y: number;
 		type: Property.Cursor;
-		color: string;
-		secondaryColor: string;
+		colors: Colors;
 	};
 	let cursorEntries = $derived.by((): CursorEntry[] => {
 		const entries: CursorEntry[] = [];
 		for (const [id, p] of Object.entries(pos.others)) {
 			if (p) {
 				const sm = smoothed[id];
+				const entryColor = color.others[id] ?? DEFAULT_PRIMARY;
+				const entrySecondary = secondaryColor.others[id] ?? DEFAULT_SECONDARY;
 				entries.push({
 					id,
 					x: sm ? sm.x : p.x,
 					y: sm ? sm.y : p.y,
 					type: cursorType.others[id] ?? 'default',
-					color: color.others[id] ?? DEFAULT_PRIMARY,
-					secondaryColor: secondaryColor.others[id] ?? DEFAULT_SECONDARY
+					colors: {
+						color: entryColor,
+						secondaryColor: entrySecondary,
+						central: centralColor(entryColor, entrySecondary)
+					}
 				});
 			}
 		}
@@ -393,18 +399,18 @@
 	class="pointer-events-none absolute top-0 left-0 -z-10"
 	style="width: {docSize.width}px; height: {docSize.height}px;"
 >
-	{#each Object.entries(highlightRects) as [id, rects] (id)}
-		{@const rectColor = centralColor(
-			color.others[id] ?? DEFAULT_PRIMARY,
-			secondaryColor.others[id] ?? DEFAULT_SECONDARY
-		)}
-		<div
-			style="opacity: {fadeOpacity[id] ?? 0}; transition: opacity {fadeDuration[id] ?? 200}ms linear;"
-		>
-			{#each rects as rect, i (i)}
-				<SelectionHighlight {rect} color={rectColor} />
-			{/each}
-		</div>
+	{#each cursorEntries as entry (entry.id)}
+		{@const rects = highlightRects[entry.id]}
+		{#if rects?.length}
+			<div
+				style="opacity: {fadeOpacity[entry.id] ?? 0}; transition: opacity {fadeDuration[entry.id] ??
+					200}ms linear;"
+			>
+				{#each rects as rect, i (i)}
+					<SelectionHighlight {rect} color={entry.colors.central} />
+				{/each}
+			</div>
+		{/if}
 	{/each}
 </div>
 
@@ -419,13 +425,9 @@
 				localPos.y}px; transform-origin: 50% 100%; transform: translate(-50%, calc(-100% - {12 /
 				viewportScale}px)) scale({1 / viewportScale});"
 		>
-			<ChatBubbles messages={myMessages} color={centralColor(color.value, secondaryColor.value)} />
+			<ChatBubbles messages={myMessages} color={myColors.central} />
 			{#if chatInputOpen}
-				<ChatInput
-					color={centralColor(color.value, secondaryColor.value)}
-					onsubmit={submitChat}
-					oncancel={cancelChat}
-				/>
+				<ChatInput color={myColors.central} onsubmit={submitChat} oncancel={cancelChat} />
 			{/if}
 		</div>
 	{/if}
@@ -443,17 +445,17 @@
 						viewportScale}px)) scale({1 / viewportScale});"
 				>
 					{#if messages?.length}
-						<ChatBubbles {messages} color={centralColor(entry.color, entry.secondaryColor)} />
+						<ChatBubbles {messages} color={entry.colors.central} />
 					{/if}
 					{#if typing.others[entry.id]}
-						<TypingIndicator color={centralColor(entry.color, entry.secondaryColor)} />
+						<TypingIndicator color={entry.colors.central} />
 					{/if}
 				</div>
 			{/if}
 			<Cursor
 				type={entry.type}
-				color={entry.color}
-				secondaryColor={entry.secondaryColor}
+				color={entry.colors.color}
+				secondaryColor={entry.colors.secondaryColor}
 				x={origin.left + entry.x}
 				y={origin.top + entry.y}
 				scale={1 / viewportScale}
