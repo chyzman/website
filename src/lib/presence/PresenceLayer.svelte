@@ -280,6 +280,7 @@
 				const adjustedX = screenX / vv.scale + vv.left;
 				const adjustedY = screenY / vv.scale + vv.top;
 				updateCursorPos(adjustedX, adjustedY);
+				if (container) localPos = toContainerRelative(adjustedX, adjustedY, container.getBoundingClientRect());
 				detectCursorState(document.elementFromPoint(adjustedX, adjustedY), adjustedX, adjustedY);
 			}
 			rafId = requestAnimationFrame(poll);
@@ -360,9 +361,15 @@
 >
 	{#each Object.entries(highlightRects) as [id, rects] (id)}
 		{@const rectColor = color.others[id] ?? DEFAULT_PRIMARY}
-		{#each rects as rect, i (i)}
-			<SelectionHighlight {rect} color={rectColor} />
-		{/each}
+		<div
+			style="opacity: {fading[id] ? 0 : 1}; transition: opacity {fading[id]
+				? idle.fade
+				: 200}ms linear;"
+		>
+			{#each rects as rect, i (i)}
+				<SelectionHighlight {rect} color={rectColor} />
+			{/each}
+		</div>
 	{/each}
 </div>
 
@@ -374,7 +381,8 @@
 		<div
 			class="pointer-events-none absolute flex flex-col items-center gap-1"
 			style="left: {origin.left + localPos.x}px; top: {origin.top +
-				localPos.y}px; transform: translate(-50%, calc(-100% - 12px));"
+				localPos.y}px; transform-origin: 50% 100%; transform: translate(-50%, calc(-100% - {12 /
+				viewportScale}px)) scale({1 / viewportScale});"
 		>
 			<ChatBubbles messages={myMessages} color={centralColor(color.value, secondaryColor.value)} />
 			{#if chatInputOpen}
@@ -388,34 +396,35 @@
 	{/if}
 	{#each cursorEntries as entry (entry.id)}
 		{@const messages = chatMessages.others[entry.id]}
-		{#if messages?.length || typing.others[entry.id]}
-			<div
-				class="pointer-events-none absolute flex flex-col items-center gap-1"
-				style="left: {origin.left + entry.x}px; top: {origin.top +
-					entry.y}px; transform: translate(-50%, calc(-100% - 12px));"
-			>
-				{#if messages?.length}
-					<ChatBubbles
-						{messages}
-						color={centralColor(entry.color, entry.secondaryColor)}
-						afkOpacity={fading[entry.id] ? 0 : 1}
-						afkFadeMs={fading[entry.id] ? idle.fade : 200}
-					/>
-				{/if}
-				{#if typing.others[entry.id]}
-					<TypingIndicator color={centralColor(entry.color, entry.secondaryColor)} />
-				{/if}
-			</div>
-		{/if}
-		<Cursor
-			type={entry.type}
-			color={entry.color}
-			secondaryColor={entry.secondaryColor}
-			x={origin.left + entry.x}
-			y={origin.top + entry.y}
-			scale={1 / viewportScale}
-			opacity={fading[entry.id] ? 0 : cursor.remoteOpacity}
-			fadeMs={fading[entry.id] ? idle.fade : 200}
-		/>
+		<div
+			style="opacity: {fading[entry.id]
+				? 0
+				: 1}; transition: opacity {fading[entry.id] ? idle.fade : 200}ms linear;"
+		>
+			{#if messages?.length || typing.others[entry.id]}
+				<div
+					class="pointer-events-none absolute flex flex-col items-center gap-1"
+					style="left: {origin.left + entry.x}px; top: {origin.top +
+						entry.y}px; transform-origin: 50% 100%; transform: translate(-50%, calc(-100% - {12 /
+						viewportScale}px)) scale({1 / viewportScale});"
+				>
+					{#if messages?.length}
+						<ChatBubbles {messages} color={centralColor(entry.color, entry.secondaryColor)} />
+					{/if}
+					{#if typing.others[entry.id]}
+						<TypingIndicator color={centralColor(entry.color, entry.secondaryColor)} />
+					{/if}
+				</div>
+			{/if}
+			<Cursor
+				type={entry.type}
+				color={entry.color}
+				secondaryColor={entry.secondaryColor}
+				x={origin.left + entry.x}
+				y={origin.top + entry.y}
+				scale={1 / viewportScale}
+				opacity={cursor.remoteOpacity}
+			/>
+		</div>
 	{/each}
 </div>

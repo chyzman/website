@@ -1,19 +1,8 @@
 <script lang="ts">
 	import type { ChatMessage } from 'shared';
 	import { chat } from '$lib/settings/settings.svelte';
-	import { combineFade } from 'utils';
 
-	let {
-		messages,
-		color,
-		afkOpacity = 1,
-		afkFadeMs = 200
-	}: {
-		messages: ChatMessage[];
-		color: string;
-		afkOpacity?: number;
-		afkFadeMs?: number;
-	} = $props();
+	let { messages, color }: { messages: ChatMessage[]; color: string } = $props();
 
 	let fading = $state<Record<number, boolean>>({});
 	let hidden = $state<Record<number, boolean>>({});
@@ -46,13 +35,9 @@
 </script>
 
 {#each visible as m (m.sentAt)}
-	{@const combined = combineFade(
-		{ opacity: fading[m.sentAt] ? 0 : 1, fadeMs: chat.fadeMs },
-		{ opacity: afkOpacity, fadeMs: afkFadeMs }
-	)}
 	<div
 		class="pointer-events-none rounded-md bg-canvas px-2 py-1 text-xs whitespace-nowrap shadow"
-		style="color: {color}; opacity: {combined.opacity}; transition: opacity {combined.fadeMs}ms linear;"
+		style="color: {color}; opacity: {fading[m.sentAt] ? 0 : 1}; transition: opacity {chat.fadeMs}ms linear;"
 	>
 		{m.text}
 	</div>

@@ -123,8 +123,7 @@
 		x,
 		y,
 		scale = 1,
-		opacity = 1,
-		fadeMs = 200
+		opacity = 1
 	}: {
 		type: Property.Cursor;
 		color: string;
@@ -133,7 +132,6 @@
 		y: number;
 		scale?: number;
 		opacity?: number;
-		fadeMs?: number;
 	} = $props();
 
 	let entry = $derived(cursors[type] ?? cursors.default!);
@@ -149,7 +147,7 @@
 
 <div
 	class="pointer-events-none absolute top-0 left-0"
-	style="--cursor-primary: {color}; --cursor-secondary: {resolvedSecondary}; --cursor-central: {central}; opacity: {opacity}; transition: opacity {fadeMs}ms linear; transform-origin: {transformOrigin}; transform: {translate}"
+	style="--cursor-primary: {color}; --cursor-secondary: {resolvedSecondary}; --cursor-central: {central}; opacity: {opacity}; transform-origin: {transformOrigin}; transform: {translate}"
 >
 	<!-- eslint-disable-next-line svelte/no-at-html-tags -->
 	{@html entry.icon}
