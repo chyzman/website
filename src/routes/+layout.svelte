@@ -5,11 +5,15 @@
 	import { resolve } from '$app/paths';
 	import { color, secondaryColor } from '$lib/settings/settings.svelte';
 	import { cursorCssValue } from '$lib/presence/cursor/Cursor.svelte';
+	import { centralColor } from 'utils';
 
 	let { children } = $props();
 
 	$effect(() => {
-		document.documentElement.style.setProperty('--user-color', color.value);
+		document.documentElement.style.setProperty(
+			'--user-color',
+			centralColor(color.value, secondaryColor.value)
+		);
 		document.documentElement.style.setProperty(
 			'--cursor-icon-default',
 			cursorCssValue('default', color.value, secondaryColor.value, 'default')
