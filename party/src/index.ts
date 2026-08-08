@@ -5,6 +5,8 @@ import type { ChatMessage, ClientMessage, PresenceState, ServerMessage } from "s
 import { MAX_CHAT_MESSAGES, UPDATE_INTERVAL } from "shared";
 
 export class CursorRoom extends Server<Env> {
+	static options = { hibernate: true };
+
 	#lastAccepted = new Map<string, number>();
 
 	#rateLimited(connectionId: string, key: string): boolean {
