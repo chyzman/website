@@ -1,6 +1,8 @@
 <script module lang="ts">
 	import type { Property } from 'csstype';
+	import { XMLParser } from 'fast-xml-parser';
 	import { cursor as tuning } from '$lib/settings/settings.svelte';
+	import { centralColor } from 'utils';
 
 	const iconFiles = import.meta.glob('./assets/*.svg', {
 		query: '?raw',
@@ -8,12 +10,11 @@
 		eager: true
 	}) as Record<string, string>;
 
-	const centers: Partial<Record<Property.Cursor, { x: number; y: number }>> = {
-		default: { x: 69, y: 30 }, // left_ptr
-		pointer: { x: 117, y: 36 }, // hand2
-		grab: { x: 144, y: 90 }, // hand1
-		grabbing: { x: 141, y: 79 } // move
-	};
+	const xmlParser = new XMLParser({
+		ignoreAttributes: false,
+		attributeNamePrefix: '',
+		parseAttributeValue: true
+	});
 
 	type CursorEntry = {
 		icon: string;
@@ -25,11 +26,16 @@
 
 	for (const [path, svg] of Object.entries(iconFiles)) {
 		const name = path.match(/([^/]+)\.svg$/)?.[1] as Property.Cursor | undefined;
-		const viewBox = svg.match(/viewBox="([-\d.]+) ([-\d.]+) ([-\d.]+) ([-\d.]+)"/);
-		if (!name || !viewBox) continue;
-		const [vx, vy, vw, vh] = viewBox.slice(1).map(Number);
+		if (!name) continue;
 
-		const hotspot = centers[name] ?? { x: vx + vw / 2, y: vy + vh / 2 };
+		const parsed = xmlParser.parse(svg) as {
+			svg?: { viewBox?: string; hotspot?: { x: number; y: number } };
+		};
+		const viewBox = parsed.svg?.viewBox?.split(' ').map(Number);
+		if (!viewBox || viewBox.length !== 4) continue;
+		const [vx, vy, vw, vh] = viewBox;
+
+		const hotspot = parsed.svg?.hotspot ?? { x: vx + vw / 2, y: vy + vh / 2 };
 		const hotspotFraction = { x: (hotspot.x - vx) / vw, y: (hotspot.y - vy) / vh };
 		const size = { width: vw * tuning.iconScale, height: vh * tuning.iconScale };
 
@@ -57,11 +63,13 @@
 		fallback: string
 	): string {
 		const entry = cursors[type] ?? cursors.default!;
+		const central = centralColor(primary, secondary);
 		const svg = entry.icon
 			.replace(/<g filter="[^"]*">/, '<g>')
 			.replace(/<defs>[\s\S]*?<\/defs>/, '')
 			.replaceAll('var(--cursor-primary, currentColor)', primary)
-			.replaceAll('currentColor', secondary);
+			.replaceAll('var(--cursor-secondary, currentColor)', secondary)
+			.replaceAll('var(--cursor-central, currentColor)', central);
 		const encoded = encodeURIComponent(svg);
 		const hx = entry.hotspotFraction.x * entry.size.width;
 		const hy = entry.hotspotFraction.y * entry.size.height;
@@ -136,11 +144,12 @@
 		`${entry.hotspotFraction.x * 100}% ${entry.hotspotFraction.y * 100}%`
 	);
 	let resolvedSecondary = $derived(secondaryColor ?? color);
+	let central = $derived(centralColor(color, resolvedSecondary));
 </script>
 
 <div
 	class="pointer-events-none absolute top-0 left-0"
-	style="color: {resolvedSecondary}; --cursor-primary: {color}; opacity: {opacity}; transition: opacity {fadeMs}ms linear; transform-origin: {transformOrigin}; transform: {translate}"
+	style="--cursor-primary: {color}; --cursor-secondary: {resolvedSecondary}; --cursor-central: {central}; opacity: {opacity}; transition: opacity {fadeMs}ms linear; transform-origin: {transformOrigin}; transform: {translate}"
 >
 	<!-- eslint-disable-next-line svelte/no-at-html-tags -->
 	{@html entry.icon}

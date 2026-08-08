@@ -11,8 +11,11 @@
 		serializeSelection,
 		type SerializedRange
 	} from './selection/SelectionHighlight.svelte';
+	import ChatBubbles from './chat/ChatBubbles.svelte';
+	import ChatInput from './chat/ChatInput.svelte';
+	import TypingIndicator from './chat/TypingIndicator.svelte';
 	import type { Property } from 'csstype';
-	import { connect, disconnect, switchRoom } from '$lib/multiplayer/room.svelte';
+	import { connect, disconnect, switchRoom, sendChat } from '$lib/multiplayer/room.svelte';
 	import { synced } from '$lib/multiplayer/synced.svelte';
 	import {
 		color,
@@ -20,9 +23,12 @@
 		secondaryColor,
 		DEFAULT_SECONDARY,
 		idle,
-		cursor
+		cursor,
+		chat,
+		DEBOUNCE
 	} from '$lib/settings/settings.svelte';
-	import { UPDATE_INTERVAL, DEBOUNCE } from '$lib/settings/config';
+	import { centralColor } from 'utils';
+	import { UPDATE_INTERVAL, MAX_CHAT_MESSAGES, type ChatMessage } from 'shared';
 
 	function linkId(el: Element): string | null {
 		const href = el.getAttribute('href');
@@ -51,6 +57,15 @@
 	const hovering = synced('hovering', null as string | null);
 	const cursorType = synced<Property.Cursor>('cursorType', 'default');
 	const selection = synced('selection', null as SerializedRange | null);
+	const chatMessages = synced<ChatMessage[]>('chatMessages', []);
+	const typing = synced('typing', false);
+
+	// chat isn't sent through the generic patch/broadcast mechanism (the
+	// server owns the authoritative array and excludes the sender from its
+	// own broadcast), so your own messages are tracked locally instead
+	let myMessages = $state<ChatMessage[]>([]);
+	let localPos = $state({ x: 0, y: 0 });
+	let chatInputOpen = $state(false);
 
 	let origin = $state({ left: 0, top: 0 });
 	let docSize = $state({ width: 0, height: 0 });
@@ -173,6 +188,17 @@
 		origin = { left: p.x, top: p.y };
 	}
 
+	function submitChat(text: string) {
+		chatInputOpen = false;
+		typing.value = false;
+		myMessages = [...myMessages, { text, sentAt: Date.now() }].slice(-MAX_CHAT_MESSAGES);
+		sendChat(text);
+	}
+	function cancelChat() {
+		chatInputOpen = false;
+		typing.value = false;
+	}
+
 	onMount(() => {
 		connect(page.url.pathname);
 		measureOrigin();
@@ -220,9 +246,23 @@
 			lastClientVv = currentVvState();
 			hasClient = true;
 			updateCursorPos(e.clientX, e.clientY);
+			if (container) localPos = toContainerRelative(e.clientX, e.clientY, container.getBoundingClientRect());
 			detectCursorState(e.target as Element | null, e.clientX, e.clientY);
 		}
 		window.addEventListener('mousemove', handleMove);
+
+		function handleKeydown(e: KeyboardEvent) {
+			if (chatInputOpen || (e.key !== '/' && e.key !== 'Enter')) return;
+			const active = document.activeElement;
+			const isEditable =
+				active instanceof HTMLElement &&
+				(active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable);
+			if (isEditable) return;
+			e.preventDefault();
+			chatInputOpen = true;
+			typing.value = true;
+		}
+		window.addEventListener('keydown', handleKeydown);
 
 		let lastRect = container?.getBoundingClientRect() ?? { left: 0, top: 0 };
 		let rafId = requestAnimationFrame(function poll() {
@@ -279,6 +319,7 @@
 			docResizeObserver.disconnect();
 			window.removeEventListener('mousemove', handleMove);
 			window.removeEventListener('mouseout', handleOut);
+			window.removeEventListener('keydown', handleKeydown);
 			document.removeEventListener('selectionchange', handleSelectionChange);
 			clearTimeout(debounceTimer);
 			clearTimeout(selectionTimer);
@@ -329,7 +370,43 @@
 	class="pointer-events-none absolute top-0 left-0 z-50 overflow-hidden"
 	style="width: {docSize.width}px; height: {docSize.height}px;"
 >
+	{#if myMessages.length || chatInputOpen}
+		<div
+			class="pointer-events-none absolute flex flex-col items-center gap-1"
+			style="left: {origin.left + localPos.x}px; top: {origin.top +
+				localPos.y}px; transform: translate(-50%, calc(-100% - 12px));"
+		>
+			<ChatBubbles messages={myMessages} color={centralColor(color.value, secondaryColor.value)} />
+			{#if chatInputOpen}
+				<ChatInput
+					color={centralColor(color.value, secondaryColor.value)}
+					onsubmit={submitChat}
+					oncancel={cancelChat}
+				/>
+			{/if}
+		</div>
+	{/if}
 	{#each cursorEntries as entry (entry.id)}
+		{@const messages = chatMessages.others[entry.id]}
+		{#if messages?.length || typing.others[entry.id]}
+			<div
+				class="pointer-events-none absolute flex flex-col items-center gap-1"
+				style="left: {origin.left + entry.x}px; top: {origin.top +
+					entry.y}px; transform: translate(-50%, calc(-100% - 12px));"
+			>
+				{#if messages?.length}
+					<ChatBubbles
+						{messages}
+						color={centralColor(entry.color, entry.secondaryColor)}
+						afkOpacity={fading[entry.id] ? 0 : 1}
+						afkFadeMs={fading[entry.id] ? idle.fade : 200}
+					/>
+				{/if}
+				{#if typing.others[entry.id]}
+					<TypingIndicator color={centralColor(entry.color, entry.secondaryColor)} />
+				{/if}
+			</div>
+		{/if}
 		<Cursor
 			type={entry.type}
 			color={entry.color}

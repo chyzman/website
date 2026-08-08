@@ -15,3 +15,10 @@ export const cursor = {
 	remoteOpacity: 0.7,
 	iconScale: 20 / 164
 };
+
+export const DEBOUNCE = 50;
+
+export const chat = {
+	displayMs: 5000,
+	fadeMs: 3000
+};

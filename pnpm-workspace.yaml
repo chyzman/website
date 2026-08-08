@@ -1,6 +1,8 @@
 packages:
   - .
   - party
+  - shared
+  - utils
 
 allowBuilds:
   esbuild: true

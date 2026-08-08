@@ -74,4 +74,61 @@ describe('CursorRoom (real server code, two simulated connections)', () => {
 
 		b.close();
 	});
+
+	it('stamps a server-side sentAt for a chat message, not trusting the client', async () => {
+		const room = `test-room-${Math.random()}`;
+		const { ws: a } = await connectToRoom(room);
+		const { ws: b } = await connectToRoom(room);
+
+		const bReceives = nextMessage(b);
+		a.send(JSON.stringify({ type: 'chat', text: 'hello', sentAt: 1 }));
+		const msg = await bReceives;
+		expect(msg).toMatchObject({
+			type: 'presence',
+			chatMessages: [{ text: 'hello' }]
+		});
+		const stamped = (msg.chatMessages as { sentAt: number }[])[0].sentAt;
+		expect(stamped).toBeGreaterThan(1000000);
+
+		a.close();
+		b.close();
+	});
+
+	it('caps stored chat messages at the configured maximum', async () => {
+		const room = `test-room-${Math.random()}`;
+		const { ws: a } = await connectToRoom(room);
+		const { ws: b } = await connectToRoom(room);
+
+		let last: Record<string, unknown> = {};
+		for (let i = 0; i < 8; i++) {
+			const next = nextMessage(b);
+			a.send(JSON.stringify({ type: 'chat', text: `msg-${i}` }));
+			last = await next;
+			await new Promise((r) => setTimeout(r, 25));
+		}
+		expect((last.chatMessages as unknown[]).length).toBeLessThanOrEqual(5);
+
+		a.close();
+		b.close();
+	});
+
+	it('drops patches arriving faster than the update interval', async () => {
+		const room = `test-room-${Math.random()}`;
+		const { ws: a } = await connectToRoom(room);
+		const { ws: b } = await connectToRoom(room);
+
+		const first = nextMessage(b);
+		a.send(JSON.stringify({ type: 'patch', n: 1 }));
+		await expect(first).resolves.toMatchObject({ n: 1 });
+
+		a.send(JSON.stringify({ type: 'patch', n: 2 }));
+		const second = await Promise.race([
+			nextMessage(b),
+			new Promise((resolve) => setTimeout(() => resolve('timeout'), 15))
+		]);
+		expect(second).toBe('timeout');
+
+		a.close();
+		b.close();
+	});
 });

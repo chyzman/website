@@ -1,6 +1,7 @@
 import PartySocket from 'partysocket';
+import type { PresenceState, ServerMessage } from 'shared';
 
-export type PresenceState = Record<string, unknown>;
+export type { PresenceState };
 
 // deriving this from wherever the site happens to be running would break
 // under preview deployments (unrelated auto-generated hostnames), so the
@@ -15,11 +16,6 @@ export function partyBase(): { host: string; protocol: 'http' | 'https' } {
 	}
 	return { host, protocol: import.meta.env.DEV ? 'http' : 'https' };
 }
-
-type ServerMessage =
-	| { type: 'init'; presence: ({ id: string } & PresenceState)[] }
-	| ({ type: 'presence'; id: string } & PresenceState)
-	| { type: 'leave'; id: string };
 
 export const presence = $state<Record<string, PresenceState>>({});
 
@@ -83,6 +79,12 @@ export function patch(fields: PresenceState) {
 	myState = { ...myState, ...fields };
 	if (socket && socket.readyState === WebSocket.OPEN) {
 		socket.send(JSON.stringify({ type: 'patch', ...fields }));
+	}
+}
+
+export function sendChat(text: string) {
+	if (socket && socket.readyState === WebSocket.OPEN) {
+		socket.send(JSON.stringify({ type: 'chat', text }));
 	}
 }
 
