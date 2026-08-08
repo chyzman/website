@@ -394,7 +394,10 @@
 	style="width: {docSize.width}px; height: {docSize.height}px;"
 >
 	{#each Object.entries(highlightRects) as [id, rects] (id)}
-		{@const rectColor = color.others[id] ?? DEFAULT_PRIMARY}
+		{@const rectColor = centralColor(
+			color.others[id] ?? DEFAULT_PRIMARY,
+			secondaryColor.others[id] ?? DEFAULT_SECONDARY
+		)}
 		<div
 			style="opacity: {fadeOpacity[id] ?? 0}; transition: opacity {fadeDuration[id] ?? 200}ms linear;"
 		>
