@@ -9,11 +9,15 @@ export const secondaryColor = persisted('secondaryColor', DEFAULT_SECONDARY);
 
 export type Colors = { color: string; secondaryColor: string; central: string };
 
-export const myColors: Colors = $derived({
+let myColorsValue: Colors = $derived({
 	color: color.value,
 	secondaryColor: secondaryColor.value,
 	central: centralColor(color.value, secondaryColor.value)
 });
+
+export function myColors(): Colors {
+	return myColorsValue;
+}
 
 export const idle = {
 	grace: 5000,

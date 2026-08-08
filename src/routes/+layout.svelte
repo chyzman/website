@@ -9,18 +9,19 @@
 	let { children } = $props();
 
 	$effect(() => {
-		document.documentElement.style.setProperty('--user-color', myColors.central);
+		const colors = myColors();
+		document.documentElement.style.setProperty('--user-color', colors.central);
 		document.documentElement.style.setProperty(
 			'--cursor-icon-default',
-			cursorCssValue('default', myColors.color, myColors.secondaryColor, 'default')
+			cursorCssValue('default', colors.color, colors.secondaryColor, 'default')
 		);
 		document.documentElement.style.setProperty(
 			'--cursor-icon-pointer',
-			cursorCssValue('pointer', myColors.color, myColors.secondaryColor, 'pointer')
+			cursorCssValue('pointer', colors.color, colors.secondaryColor, 'pointer')
 		);
 		document.documentElement.style.setProperty(
 			'--cursor-icon-text',
-			cursorCssValue('text', myColors.color, myColors.secondaryColor, 'text')
+			cursorCssValue('text', colors.color, colors.secondaryColor, 'text')
 		);
 	});
 </script>

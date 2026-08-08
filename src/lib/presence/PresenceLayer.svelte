@@ -425,9 +425,9 @@
 				localPos.y}px; transform-origin: 50% 100%; transform: translate(-50%, calc(-100% - {12 /
 				viewportScale}px)) scale({1 / viewportScale});"
 		>
-			<ChatBubbles messages={myMessages} color={myColors.central} />
+			<ChatBubbles messages={myMessages} color={myColors().central} />
 			{#if chatInputOpen}
-				<ChatInput color={myColors.central} onsubmit={submitChat} oncancel={cancelChat} />
+				<ChatInput color={myColors().central} onsubmit={submitChat} oncancel={cancelChat} />
 			{/if}
 		</div>
 	{/if}
